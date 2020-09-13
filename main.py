@@ -4,6 +4,7 @@ Main file for the Sports Bet project
 import pandas as pd
 pd.options.display.width = 0
 import numpy as np
+np.seterr(divide='ignore', invalid='ignore')
 import datetime
 from copy import deepcopy
 from sklearn import preprocessing, compose
@@ -29,15 +30,23 @@ use_last_k_matches = 5  # None to not use it or integer
 class League(object):
     def __init__(self, country, division, seasons):
         self.country = country
+        print('Country: %s' % country)
         self.division = division
-        self.name = country[0].upper() + division
+        print('Division: %s' % division)
+        id_country = country[0].upper()
+        if country.lower() == 'spain':
+            id_country = 'SP'
+        elif country.lower() == 'germany':
+            id_country = 'D'
+        self.name = id_country + division
         self.seasons = [Season(self.name, season) for season in seasons]
+        print('Seasons: %s' % seasons)
         self.datasets = {}
 
     def run(self):
         for season in self.seasons:
             season.run()
-            self.datasets[season.name] = pd.DataFrame(season.dataset)
+            self.datasets[season.name] = season.dataset
 
 
 class Season(object):
@@ -99,6 +108,9 @@ class Season(object):
                 self.dataset.append(self.prepare_example(match))
             self.update_statistics(matches)
             self.matches = self.matches[self.matches['Date'] != current_date]
+        self.dataset = pd.DataFrame(self.dataset)
+        self.dataset = self.dataset.dropna()  # drop matches with Nan in the features, i.e. usually the first
+        # use_last_k_matches game days
 
     def prepare_example(self, match):
         example = {'result': match['FTR']}  # ground truth
@@ -107,6 +119,7 @@ class Season(object):
         for home_or_away in ['Home', 'Away']:
             team_name = match['%sTeam' % home_or_away]
             team = self.teams[team_name]
+            example['%sPlayedMatches'] = team.played_matches
             example['%sRanking' % home_or_away] = team.ranking
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 
@@ -149,44 +162,72 @@ class Team(object):
             self.last_k_matches = self.last_k_matches[-use_last_k_matches:]
 
 
-league = League(country, division, seasons)
-league.run()
-
-def dataset_preprocessing(dataset):
-    dataset = dataset.dropna()  # drop matches with Nan value in the feature
+def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None):
     Y = dataset['result']
     X = dataset.drop('result', axis='columns')
 
     # Transform categorical labels (H, D, A) into numerical values
-    le = preprocessing.LabelEncoder()
-    le.fit(Y)
-    Y = le.transform(Y)
+    if label_encoder is None:
+        label_encoder = preprocessing.LabelEncoder()
+        label_encoder.fit(Y)
+    Y = label_encoder.transform(Y)
 
-    # print(X.info())
-    preprocessor = compose.ColumnTransformer(transformers=[
-        ('cat', preprocessing.OneHotEncoder(), compose.make_column_selector(dtype_include="object")),
-        ('num', preprocessing.StandardScaler(), compose.make_column_selector(dtype_exclude="object"))
-    ])
-    X = preprocessor.fit_transform(X)
+    if feature_preprocessor is None:
+        # print(X.info())
+        feature_preprocessor = compose.ColumnTransformer(transformers=[
+            ('cat', preprocessing.OneHotEncoder(), compose.make_column_selector(dtype_include="object")),
+            ('num', preprocessing.StandardScaler(), compose.make_column_selector(dtype_exclude="object"))
+        ])
+        feature_preprocessor.fit(X)
+    X = feature_preprocessor.transform(X)
 
-    return X, Y
+    return X, Y, label_encoder, feature_preprocessor
 
-training_dataset = []
-for i in range(len(seasons) - 1):
-    training_dataset.append(league.datasets[seasons[i]])
-training_dataset = pd.concat(training_dataset)
-test_dataset = league.datasets[seasons[-1]]
 
-# Training
-logreg = LogisticRegression(C=1e5)
-X, Y = dataset_preprocessing(training_dataset)
-logreg.fit(X, Y)
-Y_pred = logreg.predict(X)
-print('Training accuracy: %.2f' % accuracy_score(Y, Y_pred))
+class ResultsPrediction(object):
+    def __init__(self, league):
+        self.model = LogisticRegression(C=1e5)
+        self.league = league
+        self.training_dataset, self.test_dataset = self.split_train_test_sets()
 
-# Test
-X, Y = dataset_preprocessing(test_dataset)
-Y_pred = logreg.predict(X)
-print('Test accuracy: %.2f' % accuracy_score(Y, Y_pred))
+    def split_train_test_sets(self):
+        """
+        Train on the N-1 first seasons and evaluate on the last season
+        """
+        training_dataset = []
+        for i in range(len(seasons) - 1):
+            training_dataset.append(league.datasets[seasons[i]])
+        training_dataset = pd.concat(training_dataset)
+        test_dataset = league.datasets[seasons[-1]]
+        return training_dataset, test_dataset
 
-# TODO: Comparison to baselines: predicting win of the home team or the best ranked
+    def train(self):
+        X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
+        self.model.fit(X, Y)
+        Y_pred = self.model.predict(X)
+        print('Training accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
+
+    def eval(self):
+        X, Y, _, _ = dataset_preprocessing(self.test_dataset, self.label_encoder, self.feature_preprocessor)
+        Y_pred = self.model.predict(X)
+        print('\nTest accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
+
+        # Comparison to two baseline models
+        # 1) The home team always win
+        Y_pred = self.label_encoder.transform(['H'] * len(Y_pred))
+        print('Test accuracy of the heuristic "The home team always wins": %.3f' % accuracy_score(Y, Y_pred))
+
+        # 2) The best ranked team always wins
+        Y_pred = pd.Series(['A'] * len(Y_pred), index=self.test_dataset.index)
+        home_team_has_best_ranking = self.test_dataset['HomeRanking'] < self.test_dataset['AwayRanking']
+        Y_pred[home_team_has_best_ranking] = 'H'
+        Y_pred = self.label_encoder.transform(Y_pred)
+        print('Test accuracy of the heuristic "The best ranked team always wins": %.3f' % accuracy_score(Y, Y_pred))
+
+
+league = League(country, division, seasons)
+league.run()
+model = ResultsPrediction(league)
+model.train()
+model.eval()
+
