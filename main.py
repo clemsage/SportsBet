@@ -7,6 +7,9 @@ import datetime
 from copy import deepcopy
 from sklearn import preprocessing, compose
 from sklearn.linear_model import LogisticRegression
+from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 
 
@@ -202,6 +205,9 @@ def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None
 class ResultsPredictor(object):
     def __init__(self, league):
         self.model = LogisticRegression(C=1e5)
+        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
+        # self.model = DecisionTreeClassifier()
+        # self.model = RandomForestClassifier()
         self.league = league
         self.training_dataset, self.test_dataset = self.split_train_test_sets()
 
@@ -218,7 +224,7 @@ class ResultsPredictor(object):
 
     def train(self):
         X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
-        print('Training of the model...')
+        print('\nTraining of the model...')
         self.model.fit(X, Y)
         Y_pred = self.model.predict(X)
         print('Training accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
@@ -226,7 +232,7 @@ class ResultsPredictor(object):
     def eval(self):
         X, Y, _, _ = dataset_preprocessing(self.test_dataset, self.label_encoder, self.feature_preprocessor)
         Y_pred = self.model.predict(X)
-        print('\nTest accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
+        print('Test accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
 
         # Comparison to two baseline models
         # 1) The home team always win
@@ -255,18 +261,24 @@ class ResultsPredictor(object):
 class BettingStrategy(object):
     def __init__(self, initial_bankroll, results_predictor, bet_platform, bet_per_match=1):
         self.initial_bankroll = initial_bankroll
-        print('Initial bankroll: %f' % initial_bankroll)
+        print('\nInitial bankroll: %f' % initial_bankroll)
         self.bankroll = initial_bankroll
         self.results_predictor = results_predictor
         self.bet_platform = bet_platform
         print('Bet platform: %s' % self.bet_platform)
         self.bet_per_match = bet_per_match
+        self.total_bet_amount = 0
 
     def apply(self, dataset, matches):
         if len(dataset):  # if prediction is possible
             predictions = self.results_predictor.infer(dataset, with_proba=False)
             for i, match in matches.iterrows():
+                if i not in predictions.index:
+                    print('The following match has not been predicted: %s against % s at %s' %
+                          (match['HomeTeam'], match['AwayTeam'], match['Date']))
+                    continue
                 self.bankroll -= self.bet_per_match
+                self.total_bet_amount += self.bet_per_match
                 if 'result' in predictions:
                     if match['FTR'] == predictions.loc[i, 'result']:
                         self.bankroll += self.bet_per_match * match[''.join((bet_platform, match['FTR']))]
@@ -278,9 +290,8 @@ league = League(country, division, seasons)
 league.run()
 results_predictor = ResultsPredictor(league)
 results_predictor.train()
-# results_predictor.eval()
+results_predictor.eval()
 betting_strategy = BettingStrategy(initial_bankroll, results_predictor, bet_platform)
 league.seasons[-1].run(betting_strategy)
+print('Total amount bet during the season: %f' % betting_strategy.total_bet_amount)
 print('Final bankroll: %f' % betting_strategy.bankroll)
-
-
