@@ -2,15 +2,16 @@
 Main file for the Sports Bet project
 """
 import pandas as pd
-pd.options.display.width = 0
 import numpy as np
-np.seterr(divide='ignore', invalid='ignore')
 import datetime
 from copy import deepcopy
 from sklearn import preprocessing, compose
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
+
+pd.options.display.width = 0
+np.seterr(divide='ignore', invalid='ignore')
 
 #################
 # DO NOT CHANGE #
@@ -20,6 +21,8 @@ base_path_data = 'https://www.football-data.co.uk/mmz4281'
 country = 'France'
 division = '1'
 seasons = ['1415', '1516', '1617', '1718', '1819']  # list of 4 digits, e.g. 1819 for the 2018/2019 season
+bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
+initial_bankroll = 100  # in €
 
 ###########################
 # Features for prediction #
@@ -56,7 +59,6 @@ class Season(object):
         data_url = '/'.join((base_path_data, name, league_name + '.csv'))
         self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
         self.matches = self.matches.dropna(how='all')
-        self._matches = deepcopy(self.matches)
 
         # sort matches by chronological order
         def normalize_year(year):  # fix for 2017/2018 French 1st league having DD/MM/YY format instead of DD/MM/YYYY
@@ -74,6 +76,13 @@ class Season(object):
         self.matches['Date'] = pd.to_datetime(self.matches['Date'], format='%d/%m/%Y')
         self.matches.sort_values(by=['Date'], inplace=True)
 
+        self._matches = None
+        self.teams = None
+        self.ranking = None
+        self.dataset = None
+        self.reset_statistics()
+
+    def reset_statistics(self):
         team_names = self.matches['HomeTeam'].unique()
         self.teams = {team_name: Team(team_name) for team_name in team_names}
         self.ranking = self.get_ranking()
@@ -99,18 +108,25 @@ class Season(object):
             team.ranking = 1 + ranking.index.get_loc(team.name)
         return ranking
 
-    def run(self):
-        while len(self.matches):
+    def run(self, betting_strategy=None):
+        self.reset_statistics()
+        self._matches = deepcopy(self.matches)
+        while len(self._matches):
             # Group matches by date
-            current_date = self.matches['Date'].iloc[0]
-            matches = self.matches.loc[self.matches['Date'] == current_date]
+            current_date = self._matches['Date'].iloc[0]
+            matches = self._matches.loc[self._matches['Date'] == current_date]
+            dataset = []
             for _, match in matches.iterrows():
-                self.dataset.append(self.prepare_example(match))
+                dataset.append(self.prepare_example(match))
+            dataset = pd.DataFrame(dataset, index=matches.index)
+            dataset = dataset.dropna()  # drop the matches with Nan in the features, i.e. usually the first
+            # use_last_k_matches game days
+            if betting_strategy is not None:
+                betting_strategy.apply(dataset, matches)
             self.update_statistics(matches)
-            self.matches = self.matches[self.matches['Date'] != current_date]
-        self.dataset = pd.DataFrame(self.dataset)
-        self.dataset = self.dataset.dropna()  # drop matches with Nan in the features, i.e. usually the first
-        # use_last_k_matches game days
+            self._matches = self._matches[self._matches['Date'] != current_date]
+            self.dataset.append(dataset)
+        self.dataset = pd.concat(self.dataset)
 
     def prepare_example(self, match):
         example = {'result': match['FTR']}  # ground truth
@@ -129,7 +145,6 @@ class Season(object):
                         example['%sPrevRes%d' % (home_or_away, i)] = team.last_k_matches[-i]['res']
                     else:
                         example['%sPrevRes%d' % (home_or_away, i)] = np.nan
-
         return example
 
 
@@ -184,7 +199,7 @@ def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None
     return X, Y, label_encoder, feature_preprocessor
 
 
-class ResultsPrediction(object):
+class ResultsPredictor(object):
     def __init__(self, league):
         self.model = LogisticRegression(C=1e5)
         self.league = league
@@ -195,14 +210,15 @@ class ResultsPrediction(object):
         Train on the N-1 first seasons and evaluate on the last season
         """
         training_dataset = []
-        for i in range(len(seasons) - 1):
-            training_dataset.append(league.datasets[seasons[i]])
+        for i in range(len(self.league.seasons) - 1):
+            training_dataset.append(self.league.datasets[self.league.seasons[i].name])
         training_dataset = pd.concat(training_dataset)
-        test_dataset = league.datasets[seasons[-1]]
+        test_dataset = self.league.datasets[self.league.seasons[-1].name]
         return training_dataset, test_dataset
 
     def train(self):
         X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
+        print('Training of the model...')
         self.model.fit(X, Y)
         Y_pred = self.model.predict(X)
         print('Training accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
@@ -224,10 +240,47 @@ class ResultsPrediction(object):
         Y_pred = self.label_encoder.transform(Y_pred)
         print('Test accuracy of the heuristic "The best ranked team always wins": %.3f' % accuracy_score(Y, Y_pred))
 
+    def infer(self, dataset, with_proba=False):
+        X, _, _, _ = dataset_preprocessing(dataset, self.label_encoder, self.feature_preprocessor)
+        if with_proba:
+            Y_pred = self.model.predict_proba(X)
+            Y_pred = pd.DataFrame(Y_pred, columns=self.label_encoder.classes_, index=dataset.index)
+        else:
+            Y_pred = self.model.predict(X)
+            Y_pred = self.label_encoder.inverse_transform(Y_pred)
+            Y_pred = pd.DataFrame(Y_pred, columns=['result'], index=dataset.index)
+        return Y_pred
+
+
+class BettingStrategy(object):
+    def __init__(self, initial_bankroll, results_predictor, bet_platform, bet_per_match=1):
+        self.initial_bankroll = initial_bankroll
+        print('Initial bankroll: %f' % initial_bankroll)
+        self.bankroll = initial_bankroll
+        self.results_predictor = results_predictor
+        self.bet_platform = bet_platform
+        print('Bet platform: %s' % self.bet_platform)
+        self.bet_per_match = bet_per_match
+
+    def apply(self, dataset, matches):
+        if len(dataset):  # if prediction is possible
+            predictions = self.results_predictor.infer(dataset, with_proba=False)
+            for i, match in matches.iterrows():
+                self.bankroll -= self.bet_per_match
+                if 'result' in predictions:
+                    if match['FTR'] == predictions.loc[i, 'result']:
+                        self.bankroll += self.bet_per_match * match[''.join((bet_platform, match['FTR']))]
+                else:
+                    raise Exception('Need to implement a betting strategy when based on game results probabilities')
+
 
 league = League(country, division, seasons)
 league.run()
-model = ResultsPrediction(league)
-model.train()
-model.eval()
+results_predictor = ResultsPredictor(league)
+results_predictor.train()
+# results_predictor.eval()
+betting_strategy = BettingStrategy(initial_bankroll, results_predictor, bet_platform)
+league.seasons[-1].run(betting_strategy)
+print('Final bankroll: %f' % betting_strategy.bankroll)
+
 
