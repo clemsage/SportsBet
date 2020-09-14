@@ -32,6 +32,7 @@ initial_bankroll = 100  # in €
 ###########################
 # Features for prediction #
 use_last_k_matches = {'Home': 3, 'Away': 3}  # None to disable
+use_last_k_matches_scores = False  # If False, use only game results
 ###########################
 
 if isinstance(seasons, str):
@@ -157,11 +158,17 @@ class Season(object):
             if use_last_k_matches is not None:
                 for prev_home_or_away in ['Home', 'Away']:
                     for i in range(1, 1 + use_last_k_matches[prev_home_or_away]):
-                        if i <= len(team.last_k_matches[prev_home_or_away]):
-                            example['%sPrev%sRes%d' % (home_or_away, prev_home_or_away, i)] = \
-                                team.last_k_matches[prev_home_or_away][-i]['res']
-                        else:
-                            example['%sPrev%sRes%d' % (home_or_away, prev_home_or_away, i)] = np.nan
+                        features = ['Res']
+                        if use_last_k_matches_scores:
+                            features.extend(['FT%sG' % prev_home_or_away[0],
+                                             'FT%sG' % ('H' if prev_home_or_away == "Away" else 'A')])
+
+                        for feature in features:
+                            key = '%sPrev%s%s%d' % (home_or_away, prev_home_or_away, feature, i)
+                            if i <= len(team.last_k_matches[prev_home_or_away]):
+                                example[key] = team.last_k_matches[prev_home_or_away][-i][feature]
+                            else:
+                                example[key] = np.nan
         return example
 
 
@@ -180,12 +187,12 @@ class Team(object):
         self.played_matches += 1
         if match['FTR'] == home_or_away[0]:
             self.points += 3
-            match['res'] = 'W'  # win
+            match['Res'] = 'W'  # win
         elif match['FTR'] == 'D':
             self.points += 1
-            match['res'] = 'D'
+            match['Res'] = 'D'
         else:
-            match['res'] = 'L'  # loose
+            match['Res'] = 'L'  # loose
         self.scored_goals += match['FT%sG' % home_or_away[0]]
         self.conceded_goals += match['FT%sG' % ('A' if home_or_away == 'Home' else 'H')]
         self.goal_difference = self.scored_goals - self.conceded_goals
@@ -218,10 +225,12 @@ def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None
 
 class ResultsPredictor(object):
     def __init__(self, league):
+        # TODO: Model selection and hyperparameter tuning
         self.model = LogisticRegression(C=1e5)
-        self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
+        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
+        print('Model: %s' % self.model.__class__.__name__)
         self.league = league
         self.training_dataset, self.test_dataset = self.split_train_test_sets()
 
@@ -238,6 +247,7 @@ class ResultsPredictor(object):
 
     def train(self):
         X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
+        print('Feature set size: %d' % X.shape[1])
         print('\nTraining of the model on %d samples...' % len(self.training_dataset))
         self.model.fit(X, Y)
         Y_pred = self.model.predict(X)
