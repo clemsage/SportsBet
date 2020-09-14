@@ -28,6 +28,7 @@ seasons = '0519'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
 # or just a 4 digit string, e.g. 1019 for considering the season 10/11 until the season 18/19 included
 bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
 initial_bankroll = 100  # in €
+only_EV_plus_bets = True
 
 ###########################
 # Features for prediction #
@@ -227,7 +228,7 @@ class ResultsPredictor(object):
     def __init__(self, league):
         # TODO: Model selection and hyperparameter tuning
         self.model = LogisticRegression(C=1e5)
-        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
+        self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=False, max_iter=10000, random_state=44)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
         print('Model: %s' % self.model.__class__.__name__)
@@ -276,6 +277,7 @@ class ResultsPredictor(object):
         if with_proba:
             Y_pred = self.model.predict_proba(X)
             Y_pred = pd.DataFrame(Y_pred, columns=self.label_encoder.classes_, index=dataset.index)
+            Y_pred['result'] = Y_pred.idxmax(axis=1)
         else:
             Y_pred = self.model.predict(X)
             Y_pred = self.label_encoder.inverse_transform(Y_pred)
@@ -296,19 +298,22 @@ class BettingStrategy(object):
 
     def apply(self, dataset, matches):
         if len(dataset):  # if prediction is possible
-            predictions = self.results_predictor.infer(dataset, with_proba=False)
+            predictions = self.results_predictor.infer(dataset, with_proba=True if only_EV_plus_bets else False)
             for i, match in matches.iterrows():
                 if i not in predictions.index:
                     print('The following match has not been predicted: %s against % s at %s' %
                           (match['HomeTeam'], match['AwayTeam'], match['Date']))
                     continue
+
+                if only_EV_plus_bets:
+                    if predictions.loc[i, predictions.loc[i, 'result']] < \
+                            (1 / match[''.join((bet_platform, predictions.loc[i, 'result']))]):
+                        continue
+
                 self.bankroll -= self.bet_per_match
                 self.total_bet_amount += self.bet_per_match
-                if 'result' in predictions:
-                    if match['FTR'] == predictions.loc[i, 'result']:
-                        self.bankroll += self.bet_per_match * match[''.join((bet_platform, match['FTR']))]
-                else:
-                    raise Exception('Need to implement a betting strategy when based on game results probabilities')
+                if match['FTR'] == predictions.loc[i, 'result']:
+                    self.bankroll += self.bet_per_match * match[''.join((bet_platform, match['FTR']))]
 
 
 league = League(country, division, seasons)
