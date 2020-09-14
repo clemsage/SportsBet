@@ -11,6 +11,7 @@ from sklearn.neural_network import MLPClassifier
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
+import urllib
 
 
 pd.options.display.width = 0
@@ -23,14 +24,22 @@ base_path_data = 'https://www.football-data.co.uk/mmz4281'
 
 country = 'France'
 division = '1'
-seasons = ['1415', '1516', '1617', '1718', '1819']  # list of 4 digits, e.g. 1819 for the 2018/2019 season
+seasons = '0519'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
+# or just a 4 digit string, e.g. 1019 for considering the season 10/11 until the season 18/19 included
 bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
 initial_bankroll = 100  # in €
 
 ###########################
 # Features for prediction #
-use_last_k_matches = 5  # None to not use it or integer
+use_last_k_matches = {'Home': 3, 'Away': 3}  # None to disable
 ###########################
+
+if isinstance(seasons, str):
+    start_season = int(seasons[:2])
+    end_season = int(seasons[2:])
+    seasons = []
+    for year in range(start_season, end_season):
+        seasons.append('%s%s' % (str(year % 100).zfill(2), str((year+1) % 100).zfill(2)))
 
 
 class League(object):
@@ -60,7 +69,10 @@ class Season(object):
         self.league_name = league_name
         self.name = name
         data_url = '/'.join((base_path_data, name, league_name + '.csv'))
-        self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+        try:  # TODO: Retrieve the csv if locally available
+            self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+        except urllib.error.HTTPError:
+            print('The following data URL seems incorrect: %s' % data_url)
         self.matches = self.matches.dropna(how='all')
 
         # sort matches by chronological order
@@ -143,11 +155,13 @@ class Season(object):
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 
             if use_last_k_matches is not None:
-                for i in range(1, 1 + use_last_k_matches):
-                    if i <= len(team.last_k_matches):
-                        example['%sPrevRes%d' % (home_or_away, i)] = team.last_k_matches[-i]['res']
-                    else:
-                        example['%sPrevRes%d' % (home_or_away, i)] = np.nan
+                for prev_home_or_away in ['Home', 'Away']:
+                    for i in range(1, 1 + use_last_k_matches[prev_home_or_away]):
+                        if i <= len(team.last_k_matches[prev_home_or_away]):
+                            example['%sPrev%sRes%d' % (home_or_away, prev_home_or_away, i)] = \
+                                team.last_k_matches[prev_home_or_away][-i]['res']
+                        else:
+                            example['%sPrev%sRes%d' % (home_or_away, prev_home_or_away, i)] = np.nan
         return example
 
 
@@ -160,7 +174,7 @@ class Team(object):
         self.scored_goals = 0
         self.conceded_goals = 0
         self.ranking = None
-        self.last_k_matches = []
+        self.last_k_matches = {'Home': [], 'Away': []}
 
     def update(self, match, home_or_away):
         self.played_matches += 1
@@ -176,8 +190,8 @@ class Team(object):
         self.conceded_goals += match['FT%sG' % ('A' if home_or_away == 'Home' else 'H')]
         self.goal_difference = self.scored_goals - self.conceded_goals
         if use_last_k_matches is not None:
-            self.last_k_matches.append(match)
-            self.last_k_matches = self.last_k_matches[-use_last_k_matches:]
+            self.last_k_matches[home_or_away].append(match)
+            self.last_k_matches[home_or_away] = self.last_k_matches[home_or_away][-use_last_k_matches[home_or_away]:]
 
 
 def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None):
@@ -205,7 +219,7 @@ def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None
 class ResultsPredictor(object):
     def __init__(self, league):
         self.model = LogisticRegression(C=1e5)
-        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
+        self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=True, max_iter=10000)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
         self.league = league
@@ -224,12 +238,13 @@ class ResultsPredictor(object):
 
     def train(self):
         X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
-        print('\nTraining of the model...')
+        print('\nTraining of the model on %d samples...' % len(self.training_dataset))
         self.model.fit(X, Y)
         Y_pred = self.model.predict(X)
         print('Training accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
 
     def eval(self):
+        print('Evaluation of the model on %d samples...' % len(self.test_dataset))
         X, Y, _, _ = dataset_preprocessing(self.test_dataset, self.label_encoder, self.feature_preprocessor)
         Y_pred = self.model.predict(X)
         print('Test accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
