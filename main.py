@@ -12,6 +12,8 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import urllib
+import os
+from pathlib import Path
 
 
 pd.options.display.width = 0
@@ -70,11 +72,18 @@ class Season(object):
     def __init__(self, league_name, name):
         self.league_name = league_name
         self.name = name
-        data_url = '/'.join((base_path_data, name, league_name + '.csv'))
-        try:  # TODO: Retrieve the csv if locally available
-            self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
-        except urllib.error.HTTPError:
-            print('The following data URL seems incorrect: %s' % data_url)
+        season_id = '/'.join((name, league_name + '.csv'))
+        local_path = '/'.join(('data', season_id))
+        if os.path.exists(local_path):
+            self.matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
+        else:
+            data_url = '/'.join((base_path_data, season_id))
+            try:
+                self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+            except urllib.error.HTTPError:
+                print('The following data URL seems incorrect: %s' % data_url)
+            Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
+            self.matches.to_csv(local_path)
         self.matches = self.matches.dropna(how='all')
 
         # sort matches by chronological order
@@ -228,7 +237,7 @@ class ResultsPredictor(object):
     def __init__(self, league):
         # TODO: Model selection and hyperparameter tuning
         self.model = LogisticRegression(C=1e5)
-        self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=False, max_iter=10000, random_state=44)
+        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=False, max_iter=10000, random_state=101)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
         print('Model: %s' % self.model.__class__.__name__)
