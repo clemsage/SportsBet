@@ -26,7 +26,7 @@ base_path_data = 'https://www.football-data.co.uk/mmz4281'
 
 country = 'France'
 division = '1'
-seasons = '0519'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
+seasons = '0719'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
 # or just a 4 digit string, e.g. 1019 for considering the season 10/11 until the season 18/19 included
 bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
 initial_bankroll = 100  # in €
@@ -36,14 +36,23 @@ only_EV_plus_bets = True
 # Features for prediction #
 use_last_k_matches = {'Home': 3, 'Away': 3}  # None to disable
 use_last_k_matches_scores = False  # If False, use only game results
+use_last_k_direct_confrontations = {'Home': 3, 'Away': 3}
 ###########################
 
-if isinstance(seasons, str):
+
+def get_season_ids(seasons, offset=[0, 0]):
     start_season = int(seasons[:2])
     end_season = int(seasons[2:])
+    if start_season > end_season:  # Starting (resp. end) season is in the XXe (resp. XXIe) century
+        end_season += 100
     seasons = []
-    for year in range(start_season, end_season):
-        seasons.append('%s%s' % (str(year % 100).zfill(2), str((year+1) % 100).zfill(2)))
+    for year in range(start_season + offset[0], end_season + offset[1]):
+        seasons.append('%s%s' % (str(year % 100).zfill(2), str((year + 1) % 100).zfill(2)))
+    return seasons
+
+
+if isinstance(seasons, str):
+    seasons = get_season_ids(seasons)
 
 
 class League(object):
@@ -58,7 +67,8 @@ class League(object):
         elif country.lower() == 'germany':
             id_country = 'D'
         self.name = id_country + division
-        self.seasons = [Season(self.name, season) for season in seasons]
+        match_historic = [] if use_last_k_direct_confrontations else None
+        self.seasons = [Season(self.name, season, match_historic) for season in seasons]
         print('Seasons: %s' % seasons)
         self.datasets = {}
 
@@ -69,39 +79,16 @@ class League(object):
 
 
 class Season(object):
-    def __init__(self, league_name, name):
+    def __init__(self, league_name, name, match_historic):
         self.league_name = league_name
         self.name = name
-        season_id = '/'.join((name, league_name + '.csv'))
-        local_path = '/'.join(('data', season_id))
-        if os.path.exists(local_path):
-            self.matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
-        else:
-            data_url = '/'.join((base_path_data, season_id))
-            try:
-                self.matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
-            except urllib.error.HTTPError:
-                print('The following data URL seems incorrect: %s' % data_url)
-            Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
-            self.matches.to_csv(local_path)
-        self.matches = self.matches.dropna(how='all')
-
-        # sort matches by chronological order
-        def normalize_year(year):  # fix for 2017/2018 French 1st league having DD/MM/YY format instead of DD/MM/YYYY
-            if len(year) == 2:
-                current_year = int(str(datetime.datetime.now().year)[-2:])
-                if int(year) <= current_year:
-                    year = '20' + year
-                else:
-                    year = '19' + year
-            return year
-        self.matches['day'] = self.matches['Date'].apply(lambda x: x.split('/')[0])
-        self.matches['month'] = self.matches['Date'].apply(lambda x: x.split('/')[1])
-        self.matches['year'] = self.matches['Date'].apply(lambda x: normalize_year(x.split('/')[2]))
-        self.matches['Date'] = self.matches.apply(lambda df: '/'.join((df['day'], df['month'], df['year'])), axis=1)
-        self.matches['Date'] = pd.to_datetime(self.matches['Date'], format='%d/%m/%Y')
-        self.matches.sort_values(by=['Date'], inplace=True)
-
+        self.matches = get_season_matches(name, league_name)
+        if match_historic is not None:
+            if not len(match_historic):
+                for season in get_season_ids(self.name, offset=[-use_last_k_direct_confrontations['Home'], -1]):
+                    match_historic.append(get_season_matches(season, league_name))
+            self.match_historic = pd.concat(match_historic)
+            match_historic.append(self.matches)  # Keep only the last k season in the historic ?
         self._matches = None
         self.teams = None
         self.ranking = None
@@ -211,6 +198,40 @@ class Team(object):
             self.last_k_matches[home_or_away] = self.last_k_matches[home_or_away][-use_last_k_matches[home_or_away]:]
 
 
+def get_season_matches(name, league_name):
+    season_id = '/'.join((name, league_name + '.csv'))
+    local_path = '/'.join(('data', season_id))
+    if os.path.exists(local_path):
+        matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
+    else:
+        data_url = '/'.join((base_path_data, season_id))
+        try:
+            matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+        except urllib.error.HTTPError:
+            print('The following data URL seems incorrect: %s' % data_url)
+        Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
+        matches.to_csv(local_path, index=False)
+    matches = matches.dropna(how='all')
+
+    # sort matches by chronological order
+    def normalize_year(year):  # fix for 2017/2018 French 1st league having DD/MM/YY format instead of DD/MM/YYYY
+        if len(year) == 2:
+            current_year = int(str(datetime.datetime.now().year)[-2:])
+            if int(year) <= current_year:
+                year = '20' + year
+            else:
+                year = '19' + year
+        return year
+    matches['day'] = matches['Date'].apply(lambda x: x.split('/')[0])
+    matches['month'] = matches['Date'].apply(lambda x: x.split('/')[1])
+    matches['year'] = matches['Date'].apply(lambda x: normalize_year(x.split('/')[2]))
+    matches['Date'] = matches.apply(lambda df: '/'.join((df['day'], df['month'], df['year'])), axis=1)
+    matches['Date'] = pd.to_datetime(matches['Date'], format='%d/%m/%Y')
+    matches.sort_values(by=['Date'], inplace=True)
+
+    return matches
+
+
 def dataset_preprocessing(dataset, label_encoder=None, feature_preprocessor=None):
     Y = dataset['result']
     X = dataset.drop('result', axis='columns')
@@ -314,7 +335,7 @@ class BettingStrategy(object):
                           (match['HomeTeam'], match['AwayTeam'], match['Date']))
                     continue
 
-                if only_EV_plus_bets:
+                if only_EV_plus_bets:  # TODO: Value betting not only on the most probable result
                     if predictions.loc[i, predictions.loc[i, 'result']] < \
                             (1 / match[''.join((bet_platform, predictions.loc[i, 'result']))]):
                         continue
@@ -332,5 +353,6 @@ results_predictor.train()
 results_predictor.eval()
 betting_strategy = BettingStrategy(initial_bankroll, results_predictor, bet_platform)
 league.seasons[-1].run(betting_strategy)
+print('Bet only if EV+: %s' % ('activated' if only_EV_plus_bets else 'disabled'))
 print('Total amount bet during the season: %f' % betting_strategy.total_bet_amount)
 print('Final bankroll: %f' % betting_strategy.bankroll)
