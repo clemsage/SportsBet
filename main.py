@@ -26,7 +26,7 @@ base_path_data = 'https://www.football-data.co.uk/mmz4281'
 
 country = 'France'
 division = '1'
-seasons = '0719'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
+seasons = '0720'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
 # or just a 4 digit string, e.g. 1019 for considering the season 10/11 until the season 18/19 included
 bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
 initial_bankroll = 100  # in €
@@ -36,7 +36,7 @@ only_EV_plus_bets = True
 # Features for prediction #
 use_last_k_matches = {'Home': 3, 'Away': 3}  # None to disable
 use_last_k_matches_scores = False  # If False, use only game results
-use_last_k_direct_confrontations = {'Home': 3, 'Away': 3}
+use_last_k_direct_confrontations = 3
 ###########################
 
 
@@ -85,7 +85,7 @@ class Season(object):
         self.matches = get_season_matches(name, league_name)
         if match_historic is not None:
             if not len(match_historic):
-                for season in get_season_ids(self.name, offset=[-use_last_k_direct_confrontations['Home'], -1]):
+                for season in get_season_ids(self.name, offset=[-use_last_k_direct_confrontations, -1]):
                     match_historic.append(get_season_matches(season, league_name))
             self.match_historic = pd.concat(match_historic)
             match_historic.append(self.matches)  # Keep only the last k season in the historic ?
@@ -155,7 +155,7 @@ class Season(object):
             if use_last_k_matches is not None:
                 for prev_home_or_away in ['Home', 'Away']:
                     for i in range(1, 1 + use_last_k_matches[prev_home_or_away]):
-                        features = ['Res']
+                        features = ['Res']  # TODO: Convert to earned points as for previous confrontations
                         if use_last_k_matches_scores:
                             features.extend(['FT%sG' % prev_home_or_away[0],
                                              'FT%sG' % ('H' if prev_home_or_away == "Away" else 'A')])
@@ -166,6 +166,20 @@ class Season(object):
                                 example[key] = team.last_k_matches[prev_home_or_away][-i][feature]
                             else:
                                 example[key] = np.nan
+
+        if use_last_k_direct_confrontations:
+            previous_confrontations = self.match_historic[
+                (self.match_historic['HomeTeam'] == match['HomeTeam']) &
+                (self.match_historic['AwayTeam'] == match['AwayTeam'])]
+            previous_confrontations = previous_confrontations[-use_last_k_direct_confrontations:]
+            FTR2Points = {'H': 3, 'D': 1, 'A': 0}
+            for i in range(1, 1 + use_last_k_direct_confrontations):
+                key = 'PrevConfrFTR%d' % i
+                if i <= len(previous_confrontations):  # TODO: add also dates of confrontations ?
+                    example[key] = FTR2Points[previous_confrontations.iloc[-i]['FTR']]
+                else:
+                    example[key] = np.nan
+
         return example
 
 
@@ -209,6 +223,11 @@ def get_season_matches(name, league_name):
             matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
         except urllib.error.HTTPError:
             print('The following data URL seems incorrect: %s' % data_url)
+            raise Exception('Check the URL')
+        except pd.errors.ParserError as err:
+            print(err)
+            raise Exception('Remove the season %s from analyzed seasons' % name)
+
         Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
         matches.to_csv(local_path, index=False)
     matches = matches.dropna(how='all')
@@ -258,6 +277,7 @@ class ResultsPredictor(object):
     def __init__(self, league):
         # TODO: Model selection and hyperparameter tuning
         self.model = LogisticRegression(C=1e5)
+        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1e-2, max_iter=int(1e4))
         # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, verbose=False, max_iter=10000, random_state=101)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
@@ -326,13 +346,14 @@ class BettingStrategy(object):
         self.bet_per_match = bet_per_match
         self.total_bet_amount = 0
 
-    def apply(self, dataset, matches):
+    def apply(self, dataset, matches, verbose=False):
         if len(dataset):  # if prediction is possible
             predictions = self.results_predictor.infer(dataset, with_proba=True if only_EV_plus_bets else False)
             for i, match in matches.iterrows():
                 if i not in predictions.index:
-                    print('The following match has not been predicted: %s against % s at %s' %
-                          (match['HomeTeam'], match['AwayTeam'], match['Date']))
+                    if verbose:
+                        print('The following match has not been predicted: %s against % s at %s' %
+                              (match['HomeTeam'], match['AwayTeam'], match['Date']))
                     continue
 
                 if only_EV_plus_bets:  # TODO: Value betting not only on the most probable result
