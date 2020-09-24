@@ -31,7 +31,7 @@ seasons = '0819'  # list of 4 digit strings, e.g. 1819 for the 2018/2019 season
 # or just a 4 digit string, e.g. 1019 for considering the season 10/11 until the season 18/19 included
 bet_platform = 'B365'  # among B365, BW, IW, PS, WH, VC. Some may not be available for the chosen league
 initial_bankroll = 100  # in €
-only_EV_plus_bets = True
+value_betting = 'only_predicted_result'  # 'only_predicted_result', 'all_results' or False
 
 ###########################
 # Features for prediction #
@@ -182,7 +182,6 @@ class Season(object):
                         example[key] = FTR2Points[example[key]]
                 else:
                     example[key] = np.nan
-
         return example
 
 
@@ -198,6 +197,7 @@ class Team(object):
         self.last_k_matches = {'Home': [], 'Away': []}
 
     def update(self, match, home_or_away):
+        match = match.copy()
         self.played_matches += 1
         if match['FTR'] == home_or_away[0]:
             points = 3
@@ -284,7 +284,7 @@ class ResultsPredictor(object):
         # TODO: Model selection and hyperparameter tuning
         self.model = LogisticRegression(C=1e5)
         # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1e-2, max_iter=int(1e4))
-        # self.model = MLPClassifier(hidden_layer_sizes=10, alpha=1, max_iter=10000, random_state=101)
+        # self.model = MLPClassifier(hidden_layer_sizes=32, alpha=1, max_iter=10000, random_state=101)
         # self.model = DecisionTreeClassifier()
         # self.model = RandomForestClassifier()
         print('Model: %s' % self.model.__class__.__name__)
@@ -316,8 +316,8 @@ class ResultsPredictor(object):
         Y_pred = self.model.predict(X)
         print('Test accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
 
-        # Comparison to two baseline models
-        # 1) The home team always win
+        # Comparison to two baseline models  # TODO: Evaluate these baselines for betting
+        # 1) The home team always wins
         Y_pred = self.label_encoder.transform(['H'] * len(Y_pred))
         print('Test accuracy of the heuristic "The home team always wins": %.3f' % accuracy_score(Y, Y_pred))
 
@@ -351,10 +351,11 @@ class BettingStrategy(object):
         print('Bet platform: %s' % self.bet_platform)
         self.bet_per_match = bet_per_match
         self.total_bet_amount = 0
+        assert value_betting in ['only_predicted_result', 'all_results', False]
 
     def apply(self, dataset, matches, verbose=False):
         if len(dataset):  # if prediction is possible
-            predictions = self.results_predictor.infer(dataset, with_proba=True if only_EV_plus_bets else False)
+            predictions = self.results_predictor.infer(dataset, with_proba=True if value_betting else False)
             for i, match in matches.iterrows():
                 if i not in predictions.index:
                     if verbose:
@@ -362,14 +363,24 @@ class BettingStrategy(object):
                               (match['HomeTeam'], match['AwayTeam'], match['Date']))
                     continue
 
-                if only_EV_plus_bets:  # TODO: Value betting not only on the most probable result
-                    if predictions.loc[i, predictions.loc[i, 'result']] < \
-                            (1 / match[''.join((bet_platform, predictions.loc[i, 'result']))]):
+                if value_betting:  # Compare predicted probabilities and odds of the betting platform
+                    max_value = 0
+                    bet_result = None
+                    game_results = [predictions.loc[i, 'result']] if value_betting == 'only_predicted_result' \
+                        else ['H', 'D', 'A']
+                    for game_result in game_results:
+                        value = predictions.loc[i, game_result] * match[''.join((bet_platform, game_result))]
+                        if value > 1 and value > max_value:
+                            bet_result = game_result
+                            max_value = value
+                    if bet_result is None:
                         continue
+                else:  # Bet on the most probable result
+                    bet_result = predictions.loc[i, 'result']
 
                 self.bankroll -= self.bet_per_match
                 self.total_bet_amount += self.bet_per_match
-                if match['FTR'] == predictions.loc[i, 'result']:
+                if match['FTR'] == bet_result:
                     self.bankroll += self.bet_per_match * match[''.join((bet_platform, match['FTR']))]
 
 
@@ -380,6 +391,6 @@ results_predictor.train()
 results_predictor.eval()
 betting_strategy = BettingStrategy(initial_bankroll, results_predictor, bet_platform)
 league.seasons[-1].run(betting_strategy)
-print('Bet only if EV+: %s' % ('activated' if only_EV_plus_bets else 'disabled'))
+print('Bet only on EV+ results: %s' % (value_betting if value_betting else 'disabled'))
 print('Total amount bet during the season: %f' % betting_strategy.total_bet_amount)
 print('Final bankroll: %f' % betting_strategy.bankroll)
