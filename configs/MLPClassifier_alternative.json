@@ -1,0 +1,6 @@
+{
+  "hidden_layer_sizes": 32,
+  "alpha": 1,
+  "max_iter": 10000,
+  "random_state": 101
+}

@@ -1,0 +1,5 @@
+{
+  "hidden_layer_sizes": 32,
+  "alpha": 1e-2,
+  "max_iter": 10000
+}
