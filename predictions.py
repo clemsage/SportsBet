@@ -37,21 +37,22 @@ class HomeTeamWins:
     def __init__(self):
         self.label_encoder = None
 
-    def infer(self, dataset):
-        Y_pred = self.label_encoder.transform(['H'] * len(dataset))
-        return Y_pred
+    def infer(self, dataset, **kwargs):
+        Y_pred = pd.Series(['H'] * len(dataset), index=dataset.index)
+        encoded_pred = pd.Series(self.label_encoder.transform(Y_pred), index=dataset.index)
+        return pd.concat([Y_pred, encoded_pred], axis=1, keys=['result', 'encoded_result'])
 
 
 class BestRankedTeamWins:
     def __init__(self):
         self.label_encoder = None
 
-    def infer(self, dataset):
+    def infer(self, dataset, **kwargs):
         Y_pred = pd.Series(['A'] * len(dataset), index=dataset.index)
         home_team_has_best_ranking = dataset['HomeRanking'] < dataset['AwayRanking']
         Y_pred[home_team_has_best_ranking] = 'H'
-        Y_pred = self.label_encoder.transform(Y_pred)
-        return Y_pred
+        encoded_pred = pd.Series(self.label_encoder.transform(Y_pred), index=dataset.index)
+        return pd.concat([Y_pred, encoded_pred], axis=1, keys=['result', 'encoded_result'])
 
 
 class ResultsPredictor(object):
@@ -101,7 +102,7 @@ class ResultsPredictor(object):
                 baseline.label_encoder = self.label_encoder
                 Y_pred = baseline.infer(self.test_dataset)
                 print('Test accuracy of the %s heuristic: %.3f' % (baseline.__class__.__name__,
-                                                                   accuracy_score(Y, Y_pred)))
+                                                                   accuracy_score(Y, Y_pred['encoded_result'])))
 
     def infer(self, dataset, with_proba=False):
         X, _, _, _ = dataset_preprocessing(dataset, self.label_encoder, self.feature_preprocessor)

@@ -108,10 +108,11 @@ class Season(object):
             for _, match in matches.iterrows():
                 dataset.append(self.prepare_example(match))
             dataset = pd.DataFrame(dataset, index=matches.index)
-            dataset = dataset.dropna()  # drop the matches with Nan in the features, i.e. usually the first
-            # game days since the season's match historic is empty
             if betting_strategy is not None:
                 betting_strategy.apply(dataset, matches)
+                # TODO: track the evolution of the bankroll over the time
+            dataset = dataset.dropna()  # drop the matches with Nan in the features, i.e. usually the first
+            # game days since the season's match historic is empty
             self.update_statistics(matches)
             self._matches = self._matches[self._matches['Date'] != current_date]
             self.dataset.append(dataset)

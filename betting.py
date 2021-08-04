@@ -1,7 +1,7 @@
 
 
 class BettingStrategy(object):
-    def __init__(self, args, results_predictor):
+    def __init__(self, args, results_predictor, evaluate_heuristics=True):
         self.initial_bankroll = args.initial_bankroll
         print('\nInitial bankroll: %f' % self.initial_bankroll)
 
@@ -16,21 +16,36 @@ class BettingStrategy(object):
 
         self.value_betting_on_all_results = args.value_betting_on_all_results
 
-        self.total_bet_amount = 0
-        self.bankroll = self.initial_bankroll
         self.results_predictor = results_predictor
+        self.all_predictors = {'model': self.results_predictor}
+        if evaluate_heuristics:
+            for baseline in self.results_predictor.baselines:
+                self.all_predictors[baseline.__class__.__name__] = baseline
+
+        self.total_bet_amount = {predictor: 0 for predictor in self.all_predictors}
+        self.bankroll = {predictor: self.initial_bankroll for predictor in self.all_predictors}
 
     def apply(self, dataset, matches, verbose=False):
-        if len(dataset):  # if prediction is possible
-            predictions = self.results_predictor.infer(dataset, with_proba=True if self.do_value_betting else False)
+        for predictor_name, predictor in self.all_predictors.items():
+            with_proba = False
+            if predictor_name == 'model':
+                dataset = dataset.dropna()
+                if self.do_value_betting:
+                    with_proba = True
+
+            if not len(dataset):  # prediction is not possible
+                continue
+
+            predictions = predictor.infer(dataset, with_proba=with_proba)
+
             for i, match in matches.iterrows():
                 if i not in predictions.index:
                     if verbose:
-                        print('The following match has not been predicted: %s against % s at %s' %
-                              (match['HomeTeam'], match['AwayTeam'], match['Date']))
+                        print('For %s, the following match has not been predicted: %s against % s at %s' %
+                              (predictor_name, match['HomeTeam'], match['AwayTeam'], match['Date']))
                     continue
 
-                if self.do_value_betting:  # Compare predicted probabilities and odds of the betting platform
+                if with_proba and self.do_value_betting:  # Compare predicted probabilities and odds
                     max_value = 0
                     bet_result = None
                     game_results = [['H', 'D', 'A'] if self.value_betting_on_all_results else
@@ -45,8 +60,8 @@ class BettingStrategy(object):
                 else:  # Bet on the most probable result
                     bet_result = predictions.loc[i, 'result']
 
-                # TODO: track the evolution of the bankroll over the time
-                self.bankroll -= self.stake_per_bet
-                self.total_bet_amount += self.stake_per_bet
+                self.bankroll[predictor_name] -= self.stake_per_bet
+                self.total_bet_amount[predictor_name] += self.stake_per_bet
                 if match['FTR'] == bet_result:
-                    self.bankroll += self.stake_per_bet * match[''.join((self.betting_platform, match['FTR']))]
+                    self.bankroll[predictor_name] += self.stake_per_bet * \
+                                                     match[''.join((self.betting_platform, match['FTR']))]
