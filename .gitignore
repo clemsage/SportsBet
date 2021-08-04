@@ -3,3 +3,4 @@ Lib
 Scripts
 data
 *.cfg
+__pycache__
