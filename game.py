@@ -110,7 +110,7 @@ class Season(object):
             dataset = pd.DataFrame(dataset, index=matches.index)
             if betting_strategy is not None:
                 betting_strategy.apply(dataset, matches)
-                # TODO: track the evolution of the bankroll over the time
+                betting_strategy.record_bankroll(current_date)
             dataset = dataset.dropna()  # drop the matches with Nan in the features, i.e. usually the first
             # game days since the season's match historic is empty
             self.update_statistics(matches)
@@ -125,7 +125,7 @@ class Season(object):
         for home_or_away in ['Home', 'Away']:
             team_name = match['%sTeam' % home_or_away]
             team = self.teams[team_name]
-            example['%sPlayedMatches'] = team.played_matches
+            example['%sPlayedMatches' % home_or_away] = team.played_matches
             example['%sRanking' % home_or_away] = team.ranking
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 

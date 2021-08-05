@@ -148,7 +148,4 @@ if __name__ == '__main__':
 
     betting_strategy = BettingStrategy(args, results_predictor)
     league.seasons[-1].run(betting_strategy)
-    for predictor in betting_strategy.all_predictors:
-        print('\nPredictor: %s' % predictor)
-        print('Total amount bet during the season: %f' % betting_strategy.total_bet_amount[predictor])
-        print('Final bankroll: %f' % betting_strategy.bankroll[predictor])
+    betting_strategy.display_results()

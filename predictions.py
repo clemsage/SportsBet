@@ -92,7 +92,7 @@ class ResultsPredictor(object):
         print('Training accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))
 
     def eval(self, with_heuristics=True):
-        print('Evaluation of the model on %d samples...' % len(self.test_dataset))
+        print('\nEvaluation of the model on %d samples...' % len(self.test_dataset))
         X, Y, _, _ = dataset_preprocessing(self.test_dataset, self.label_encoder, self.feature_preprocessor)
         Y_pred = self.model.predict(X)
         print('Test accuracy of the model: %.3f' % accuracy_score(Y, Y_pred))

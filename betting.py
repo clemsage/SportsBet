@@ -1,3 +1,6 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 class BettingStrategy(object):
@@ -24,22 +27,25 @@ class BettingStrategy(object):
 
         self.total_bet_amount = {predictor: 0 for predictor in self.all_predictors}
         self.bankroll = {predictor: self.initial_bankroll for predictor in self.all_predictors}
+        self.bankroll_over_time = {}
 
     def apply(self, dataset, matches, verbose=False):
         for predictor_name, predictor in self.all_predictors.items():
             with_proba = False
             if predictor_name == 'model':
-                dataset = dataset.dropna()
+                _dataset = dataset.dropna()
                 if self.do_value_betting:
                     with_proba = True
+            else:
+                _dataset = dataset
 
-            if not len(dataset):  # prediction is not possible
+            if not len(_dataset):  # prediction is not possible
                 continue
 
-            predictions = predictor.infer(dataset, with_proba=with_proba)
+            predictions = predictor.infer(_dataset, with_proba=with_proba)
 
             for i, match in matches.iterrows():
-                if i not in predictions.index:
+                if i not in predictions.index:  # TODO: correct indexes if we bet on multiple seasons (not unique !)
                     if verbose:
                         print('For %s, the following match has not been predicted: %s against % s at %s' %
                               (predictor_name, match['HomeTeam'], match['AwayTeam'], match['Date']))
@@ -65,3 +71,21 @@ class BettingStrategy(object):
                 if match['FTR'] == bet_result:
                     self.bankroll[predictor_name] += self.stake_per_bet * \
                                                      match[''.join((self.betting_platform, match['FTR']))]
+
+    def record_bankroll(self, date):
+        self.bankroll_over_time[date] = {}
+        for predictor in self.all_predictors:
+            self.bankroll_over_time[date][predictor] = self.bankroll[predictor]
+
+    def display_results(self):
+        sns.set()
+        self.bankroll_over_time = pd.DataFrame(self.bankroll_over_time)
+        for predictor in self.all_predictors:
+            print('\nPredictor: %s' % predictor)
+            print('Total amount bet during the season: %f' % self.total_bet_amount[predictor])
+            print('Final bankroll: %f' % self.bankroll[predictor])
+            self.bankroll_over_time.loc[predictor].plot(label=predictor)
+        plt.xlabel('Date')
+        plt.ylabel('Bankroll')
+        plt.legend()
+        plt.show()
