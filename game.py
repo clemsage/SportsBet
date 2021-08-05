@@ -6,6 +6,7 @@ import datetime
 from copy import deepcopy
 import pandas as pd
 import numpy as np
+from collections import defaultdict
 
 #################
 base_path_data = 'https://www.football-data.co.uk/mmz4281'
@@ -27,7 +28,7 @@ def get_season_ids(start_season, end_season=None, offset=[0, 0]):
 
 
 class League(object):
-    def __init__(self, args):
+    def __init__(self, args, betting_platforms):
         self.country = args.country
         print('Country: %s' % args.country)
         self.division = args.division
@@ -42,7 +43,7 @@ class League(object):
 
         seasons = get_season_ids(args.start_season, args.end_season)
         print("Analyzing the seasons from %s to %s..." % (seasons[0], seasons[-1]))
-        self.seasons = [Season(self.name, season, match_historic, args) for season in seasons]
+        self.seasons = [Season(self.name, season, match_historic, args, betting_platforms) for season in seasons]
         assert len(self.seasons) >= 1, "We have not found any season for start_season=%d and end_season=%d" % \
                                        (args.start_season, args.end_season)
         self.datasets = {}
@@ -54,10 +55,11 @@ class League(object):
 
 
 class Season(object):
-    def __init__(self, league_name, name, match_historic, args):
+    def __init__(self, league_name, name, match_historic, args, betting_platforms):
         self.args = args
         self.league_name = league_name
         self.name = name
+        self.betting_platforms = betting_platforms
         self.matches = get_season_matches(name, league_name)
         if match_historic is not None:
             if not len(match_historic):
@@ -130,21 +132,30 @@ class Season(object):
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 
             if self.args.match_history_length is not None:
-                for prev_home_or_away in ['Home', 'Away']:  # TODO: keep only the last home matches for the home team
-                    # and the last away matches for the away team
-                    for i in range(1, 1 + self.args.match_history_length):
-                        features = ['Points'] if self.args.match_results_encoding == 'points' else ['Res']
-                        # TODO: Add the odd from the betting platform
-                        if self.args.add_match_scores:
-                            features.extend(['FT%sG' % prev_home_or_away[0],
-                                             'FT%sG' % ('H' if prev_home_or_away == "Away" else 'A')])
-
-                        for feature in features:
-                            key = '%sPrev%s%s%d' % (home_or_away, prev_home_or_away, feature, i)
-                            if i <= len(team.last_k_matches[prev_home_or_away]):
-                                example[key] = team.last_k_matches[prev_home_or_away][-i][feature]
-                            else:
-                                example[key] = np.nan
+                for i in range(1, 1 + self.args.match_history_length):
+                    key = '%sPrev%d' % (home_or_away, i)
+                    if i <= len(team.last_k_matches[home_or_away]):
+                        prev_match = team.last_k_matches[home_or_away][-i]
+                        if prev_match['Res'] == 'D':
+                            coeffs = defaultdict(lambda: -1)
+                            coeffs[home_or_away[0]] = 1
+                        elif prev_match['Res'] == 'W':
+                            coeffs = defaultdict(lambda: 0)
+                            coeffs[home_or_away[0]] = 1
+                        elif prev_match['Res'] == 'L':
+                            coeffs = defaultdict(lambda: -1)
+                            coeffs[home_or_away[0]] = 0
+                        else:
+                            raise Exception('A match result is either a draw (D), a win (W) or a loose (L)')
+                        current_form_score = 0
+                        for prev_home_or_away in ['H', 'A']:
+                            odd_tickers = {platform + prev_home_or_away for platform in self.betting_platforms}
+                            available_tickers = odd_tickers.intersection(prev_match.keys())
+                            odd_result = prev_match.loc[available_tickers].mean()
+                            current_form_score += coeffs[prev_home_or_away] * odd_result
+                        example[key] = current_form_score
+                    else:
+                        example[key] = np.nan
 
         if self.args.number_previous_direct_confrontations:
             previous_confrontations = self.match_historic[

@@ -21,7 +21,7 @@ if __name__ == '__main__':
         '--country',
         required=True,
         type=str,
-        help="Name of the league's country, among {Italy, France, Spain, England, Germany}."
+        help="Name of the league's country."
     )
 
     parser.add_argument(
@@ -52,8 +52,7 @@ if __name__ == '__main__':
         required=True,
         type=str,
         default="B365",
-        help="Ticker of the betting platform, among {B365, BW, IW, PS, WH, VC}. "
-             "Some platform may not be available for the chosen league."
+        help="Ticker of the betting platform. Some platform may not be available for the chosen league."
     )
 
     parser.add_argument(
@@ -93,15 +92,8 @@ if __name__ == '__main__':
         default=None,
         type=int,
         help="Number of previous matches for each facing team included in the model features."
-             "If the value k is provided, then we consider the last k home and the last k away matches for each team."
-             "If not specified, we do not consider the game history."
-    )
-
-    parser.add_argument(
-        '--add_match_scores',
-        action="store_true",
-        default=False,
-        help="Besides the results, add the match scores to the features."
+             "If the value k is provided, then we consider the last k home for the home team and the last k away"
+             "matches for the away team. If not specified, we do not consider the game history."
     )
 
     parser.add_argument(
@@ -126,7 +118,6 @@ if __name__ == '__main__':
         default='LogisticRegression',
         type=str,
         help='Chosen predictive model following the scikit-learn nomenclature.'
-             'Supported values are {LogisticRegression, MLPClassifier, DecisionTreeClassifier, RandomForestClassifier}'
     )
 
     parser.add_argument(
@@ -138,8 +129,20 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    countries = ['Italy', 'France', 'Spain', 'England', 'Germany']
+    assert args.country in countries, '%s is not in the list of supported countries (%s)' % (
+        args.country, countries)
+
+    betting_platforms = ['B365', 'BW', 'IW', 'PS', 'WH', 'VC']
+    assert args.betting_platform in betting_platforms, '%s is not in the list of supported betting platforms (%s)' % (
+        args.betting_platform, betting_platforms)
+
+    models = ['LogisticRegression', 'MLPClassifier', 'DecisionTreeClassifier', 'RandomForestClassifier']
+    assert args.model_name in models, '%s is not in the list of supported models (%s)' % (
+        args.model_name, models)
+
     # Set the game
-    league = League(args)
+    league = League(args, betting_platforms)
     league.run()
 
     results_predictor = ResultsPredictor(league, args)

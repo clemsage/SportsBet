@@ -54,8 +54,10 @@ class BettingStrategy(object):
                 if with_proba and self.do_value_betting:  # Compare predicted probabilities and odds
                     max_value = 0
                     bet_result = None
-                    game_results = [['H', 'D', 'A'] if self.value_betting_on_all_results else
-                                    predictions.loc[i, 'result']]
+                    if self.value_betting_on_all_results:
+                        game_results = ['H', 'D', 'A']
+                    else:
+                        game_results = [predictions.loc[i, 'result']]
                     for game_result in game_results:
                         value = predictions.loc[i, game_result] * match[''.join((self.betting_platform, game_result))]
                         if value > 1 and value > max_value:
