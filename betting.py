@@ -83,9 +83,9 @@ class BettingStrategy(object):
         sns.set()
         self.bankroll_over_time = pd.DataFrame(self.bankroll_over_time)
         for predictor in self.all_predictors:
-            print('\nPredictor: %s' % predictor)
+            print('Predictor: %s' % predictor)
             print('Total amount bet during the season: %f' % self.total_bet_amount[predictor])
-            print('Final bankroll: %f' % self.bankroll[predictor])
+            print('Final bankroll: %f\n' % self.bankroll[predictor])
             self.bankroll_over_time.loc[predictor].plot(label=predictor)
         plt.xlabel('Date')
         plt.ylabel('Bankroll')

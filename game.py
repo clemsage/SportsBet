@@ -38,7 +38,9 @@ class League(object):
             id_country = 'SP'
         elif args.country.lower() == 'germany':
             id_country = 'D'
-        self.name = id_country + args.division
+        elif args.country.lower() == 'england':
+            self.division -= 1  # to follow the id of the website from which we pull the results
+        self.name = id_country + str(self.division)
         match_historic = [] if args.number_previous_direct_confrontations else None
 
         seasons = get_season_ids(args.start_season, args.end_season)
@@ -102,6 +104,8 @@ class Season(object):
     def run(self, betting_strategy=None):
         self.reset_statistics()
         self._matches = deepcopy(self.matches)
+        if betting_strategy is not None:
+            print('\nLeveraging the predictive models to bet for the %s season...' % self.name)
         while len(self._matches):
             # Group matches by date
             current_date = self._matches['Date'].iloc[0]

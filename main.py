@@ -26,8 +26,8 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '--division',
-        type=str,
-        default="1",
+        type=int,
+        default=1,
         help="Division level, e.g. 1 for Premier League in England. By default, set to 1."
     )
 
