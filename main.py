@@ -21,14 +21,14 @@ if __name__ == '__main__':
         '--country',
         required=True,
         type=str,
-        help="Name of the league's country."
+        help="Name of the league's country, among {Italy, France, Spain, England, Germany}."
     )
 
     parser.add_argument(
         '--division',
         type=str,
         default="1",
-        help="Division level, e.g. 1 for Premier League in England."
+        help="Division level, e.g. 1 for Premier League in England. By default, set to 1."
     )
 
     parser.add_argument(
@@ -42,7 +42,7 @@ if __name__ == '__main__':
         '--end_season',
         required=False,
         type=int,
-        help="Two digit year indicating the last season analyzed, e.g. 05 for the 2004/2005 season. If not"
+        help="Two digit year indicating the last season analyzed, e.g. 05 for the 2004/2005 season. If not "
              "specified, we consider the season indicated by the start_season argument."
     )
 
@@ -52,21 +52,22 @@ if __name__ == '__main__':
         required=True,
         type=str,
         default="B365",
-        help="Ticker of the betting platform. Some platform may not be available for the chosen league."
+        help="Ticker of the betting platform, among {B365, BW, IW, PS, WH, VC}. "
+             "Some platform may not be available for the chosen league. By default, set to B365."
     )
 
     parser.add_argument(
         '--initial_bankroll',
         type=float,
         default=100,
-        help="Initial amount allowed for betting."
+        help="Initial amount allowed for betting. By default, set to 100."
     )
 
     parser.add_argument(
         '--stake_per_bet',
         type=float,
-        default=1.0,
-        help="Stake for each bet."
+        default=1,
+        help="Stake for each bet. By default, set to 1."
     )
 
     parser.add_argument(
@@ -91,8 +92,8 @@ if __name__ == '__main__':
         '--match_history_length',
         default=None,
         type=int,
-        help="Number of previous matches for each facing team included in the model features."
-             "If the value k is provided, then we consider the last k home for the home team and the last k away"
+        help="Number of previous matches for each facing team included in the model features. "
+             "If a value k is provided, then we consider the last k home for the home team and the last k away "
              "matches for the away team. If not specified, we do not consider the game history."
     )
 
@@ -100,7 +101,7 @@ if __name__ == '__main__':
         '--number_previous_direct_confrontations',
         default=3,
         type=int,
-        help="Use the last k direct confrontations between the two teams as features."
+        help="Use the last k direct confrontations between the two teams as features. By default, k is set to 3."
     )
 
     parser.add_argument(
@@ -109,7 +110,8 @@ if __name__ == '__main__':
         type=str,
         help="In the feature vectors, encode the result of a match either with a categorical value among 'Win', "
              "'Draw' and 'Loose' or with a numerical value, i.e. the number of won points which is respectively 3, 1"
-             " and 0. The value of this argument is chosen among {'categorical', 'points'}"
+             " and 0. The value of this argument is chosen among {categorical, points}. By default, set to "
+             "points."
     )
 
     # Model
@@ -117,7 +119,9 @@ if __name__ == '__main__':
         '--model_name',
         default='LogisticRegression',
         type=str,
-        help='Chosen predictive model following the scikit-learn nomenclature.'
+        help="Chosen predictive model following the scikit-learn nomenclature. Supported values are "
+             "{LogisticRegression, MLPClassifier, DecisionTreeClassifier, RandomForestClassifier}. By default, "
+             "set to LogisticRegression."
     )
 
     parser.add_argument(
