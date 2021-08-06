@@ -223,9 +223,10 @@ def get_season_matches(name, league_name):
         except urllib.error.HTTPError:
             print('The following data URL seems incorrect: %s' % data_url)
             raise Exception('Check the URL')
-        except pd.errors.ParserError as err:
+        except pd.errors.ParserError as err:  # extra empty columns are provided for some rows, just ignore them
             print(err)
-            raise Exception('Remove the season %s from the analyzed seasons' % name)
+            columns = pd.read_csv(data_url, sep=',', nrows=1).columns.tolist()
+            matches = pd.read_csv(data_url, sep=',', encoding='mbcs', names=columns, skiprows=1)
 
         Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
         matches.to_csv(local_path, index=False)
