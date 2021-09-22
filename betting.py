@@ -25,6 +25,9 @@ class BettingStrategy(object):
             for baseline in self.results_predictor.baselines:
                 self.all_predictors[baseline.__class__.__name__] = baseline
 
+        self.analyze_betting_platforms_margins = args.analyze_betting_platforms_margins
+        # TODO: Evaluate the impact of the betting platforms margins on the gambler's bankroll
+
         self.total_bet_amount = {predictor: 0 for predictor in self.all_predictors}
         self.bankroll = {predictor: self.initial_bankroll for predictor in self.all_predictors}
         self.bankroll_over_time = {}

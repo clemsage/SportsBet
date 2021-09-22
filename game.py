@@ -49,11 +49,29 @@ class League(object):
         assert len(self.seasons) >= 1, "We have not found any season for start_season=%d and end_season=%d" % \
                                        (args.start_season, args.end_season)
         self.datasets = {}
+        self.betting_platforms = betting_platforms
 
     def run(self):
         for season in self.seasons:
             season.run()
             self.datasets[season.name] = season.dataset
+
+    def analyze_betting_platforms_margins(self):
+        margins = {}
+        all_matches = pd.concat([season.matches for season in self.seasons])
+        output = 'Average margin of each betting platform per match:'
+        for platform in self.betting_platforms:
+            odd_tickers = {platform + result for result in ['H', 'D', 'A']}
+            if len(odd_tickers.intersection(all_matches)) == 3:
+                odds = all_matches.loc[:, odd_tickers].dropna()
+                inv_odds = 1.0 / odds
+                probs = inv_odds.sum(axis=1)
+                margins[platform] = probs.mean()
+                output = output + ' %s: %.1f%%,' % (platform, 100*margins[platform]-100)
+            else:
+                margins[platform] = np.nan
+        margins['average'] = np.nanmean(list(margins.values()))
+        print(output + ' average: %.1f%%' % (100*margins['average']-100))
 
 
 class Season(object):

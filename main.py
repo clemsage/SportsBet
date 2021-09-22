@@ -87,6 +87,13 @@ if __name__ == '__main__':
              "and draw. If false, perform value betting only on the most likely predicted result."
     )
 
+    parser.add_argument(
+        '--analyze_betting_platforms_margins',
+        action="store_true",
+        default=False,
+        help="If true, compute the average margins of the betting platforms over the given seasons."
+    )
+
     # Features
     parser.add_argument(
         '--match_history_length',
@@ -148,6 +155,8 @@ if __name__ == '__main__':
     # Set the game
     league = League(args, betting_platforms)
     league.run()
+    if args.analyze_betting_platforms_margins:
+        league.analyze_betting_platforms_margins()
 
     results_predictor = ResultsPredictor(league, args)
     results_predictor.train()
