@@ -34,14 +34,14 @@ if __name__ == '__main__':
     parser.add_argument(
         '--start_season',
         required=True,
-        type=int,
+        type=str,
         help="Two digit year indicating the first season analyzed, e.g. 04 for the 2004/2005 season."
     )
 
     parser.add_argument(
         '--end_season',
         required=False,
-        type=int,
+        type=str,
         help="Two digit year indicating the last season analyzed, e.g. 05 for the 2004/2005 season. If not "
              "specified, we consider the season indicated by the start_season argument."
     )
@@ -49,11 +49,12 @@ if __name__ == '__main__':
     # Betting
     parser.add_argument(
         '--betting_platform',
-        required=True,
+        required=False,
         type=str,
         default="B365",
-        help="Ticker of the betting platform, among {B365, BW, IW, PS, WH, VC}. "
-             "Some platform may not be available for the chosen league. By default, set to B365."
+        help="Ticker of the betting platform, among {B365, BW, IW, PS, WH, VC}. Some platform may not be available for "
+             "the chosen league. See data/notes.txt file to get the names behind these tickers. "
+             "By default, set to B365."
     )
 
     parser.add_argument(
@@ -151,6 +152,9 @@ if __name__ == '__main__':
     models = ['LogisticRegression', 'MLPClassifier', 'DecisionTreeClassifier', 'RandomForestClassifier']
     assert args.model_name in models, '%s is not in the list of supported models (%s)' % (
         args.model_name, models)
+
+    if not args.end_season:
+        args.end_season = '%s' % (str((int(args.start_season) + 1) % 100).zfill(2))
 
     # Set the game
     league = League(args, betting_platforms)

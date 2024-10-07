@@ -1,26 +1,43 @@
 import urllib
 import os
 from pathlib import Path
-
+import argparse
+from typing import List, Union, Dict
+from collections import defaultdict
 import datetime
 from copy import deepcopy
+
 import pandas as pd
 import numpy as np
-from collections import defaultdict
+
+import betting
 
 #################
 base_path_data = 'https://www.football-data.co.uk/mmz4281'
-FTR2Points = {'H': 3, 'D': 1, 'A': 0}
+FTR2Points = {'H': 3, 'D': 1, 'A': 0}  # Number of points won by the home team of a match ('H' for 'Home', 'D' for
+# 'Draw', 'A' for 'Away')
 #################
 
 
-def get_season_ids(start_season, end_season=None, offset=[0, 0]):
-    if isinstance(start_season, str):
-        start_season = int(start_season[:2])
-    if end_season is None:
-        end_season = start_season
+def get_season_ids(
+        start_season: str,
+        end_season: str,
+        offset: Union[List[int], None] = None) -> List[str]:
+    """
+    :param start_season: Two digit year indicating the first season analyzed, e.g. 04 for the 2004/2005 season.
+    :param end_season: Two digit year indicating the last season analyzed, e.g. 05 for the 2004/2005 season.
+    :param offset: Number of seasons to offset for both start and end seasons, e.g. if [-1, 1] is provided along the
+     above arguments examples, then the seasons 2003/2004 (one season sooner) up to 2005/2006 will be considered. If
+     not provided, no offset is applied.
+    :return: The IDs of all the league seasons between *start_season* and *end_season*
+    """
+    start_season, end_season = int(start_season), int(end_season)
     if start_season > end_season:  # Starting (resp. end) season is in the XXe (resp. XXIe) century
         end_season += 100
+
+    if offset is None:
+        offset = [0, 0]
+
     seasons = []
     for year in range(start_season + offset[0], end_season + offset[1]):
         seasons.append('%s%s' % (str(year % 100).zfill(2), str((year + 1) % 100).zfill(2)))
@@ -28,7 +45,11 @@ def get_season_ids(start_season, end_season=None, offset=[0, 0]):
 
 
 class League(object):
-    def __init__(self, args, betting_platforms):
+    def __init__(self, args: argparse.Namespace, betting_platforms: List[str]):
+        """
+        :param args: Parsed main file arguments
+        :param betting_platforms: List of betting platforms tickers, e.g. 'BW' for Bet&Win platform.
+        """
         self.country = args.country
         print('Country: %s' % args.country)
         self.division = args.division
@@ -46,12 +67,17 @@ class League(object):
         seasons = get_season_ids(args.start_season, args.end_season)
         print("Analyzing the seasons from %s to %s..." % (seasons[0], seasons[-1]))
         self.seasons = [Season(self.name, season, match_historic, args, betting_platforms) for season in seasons]
-        assert len(self.seasons) >= 1, "We have not found any season for start_season=%d and end_season=%d" % \
+        assert len(self.seasons) >= 1, "We have not found any season for start_season=%s and end_season=%s" % \
                                        (args.start_season, args.end_season)
         self.datasets = {}
         self.betting_platforms = betting_platforms
 
     def run(self):
+        """
+        :return:
+
+        Run the matches for all seasons to gather a dataset for the ML model training and testing
+        """
         for season in self.seasons:
             season.run()
             self.datasets[season.name] = season.dataset
@@ -75,31 +101,113 @@ class League(object):
 
 
 class Season(object):
-    def __init__(self, league_name, name, match_historic, args, betting_platforms):
+    def __init__(
+            self,
+            league_name: str,
+            name: str,
+            match_historic: Union[List, None],
+            args: argparse.Namespace,
+            betting_platforms: List[str]):
+        """
+        :param league_name: Name of the league, e.g. 'SP1' for 1st Spanish division
+        :param name: Four digits ID of the season, e.g. '0405' for the 2004/2005 season
+        :param match_historic: List of matches from previous seasons that were already loaded. None can also be passed
+        if the previous matches are not needed.
+        :param args: Parsed main file arguments
+        :param betting_platforms: List of betting platforms tickers, e.g. 'BW' for Bet&Win platform
+        """
         self.args = args
         self.league_name = league_name
         self.name = name
         self.betting_platforms = betting_platforms
-        self.matches = get_season_matches(name, league_name)
+        self.matches = self.get_season_matches(name, league_name)
         if match_historic is not None:
             if not len(match_historic):
-                for season in get_season_ids(self.name, offset=[-args.number_previous_direct_confrontations - 1, -1]):
-                    match_historic.append(get_season_matches(season, league_name))
+                previous_seasons = get_season_ids(
+                    start_season=self.name[:2], end_season=self.name[2:],
+                    offset=[-args.number_previous_direct_confrontations - 1, -1])
+                for season in previous_seasons:
+                    match_historic.append(self.get_season_matches(season, league_name))
             self.match_historic = pd.concat(match_historic)
             match_historic.append(self.matches)
         self._matches = None
         self.teams = None
         self.ranking = None
         self.dataset = None
-        self.reset_statistics()
+        self.clear_data()
 
-    def reset_statistics(self):
+    @staticmethod
+    def get_season_matches(name: str, league_name: str) -> pd.DataFrame:
+        """
+        :param name: Four digits ID of the season, e.g. '0405' for the 2004/2005 season
+        :param league_name: Name of the league, e.g. 'SP1' for 1st Spanish division
+        :return: The season's matches data as available on the football-data.co.uk website.
+
+        Load the match results for the given season and league. The matches are also locally saved for faster/offline
+        loading during the next script executions.
+        """
+        season_id = '/'.join((name, league_name + '.csv'))
+        local_path = '/'.join(('data', season_id))
+        if os.path.exists(local_path):  # Load matches from local file
+            matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
+        else:  # Load matches from football-data.co.uk website
+            data_url = '/'.join((base_path_data, season_id))
+            try:
+                matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+            except urllib.error.HTTPError:
+                print('The following data URL seems incorrect: %s' % data_url)
+                raise Exception('Check the URL')
+            except pd.errors.ParserError as err:  # extra empty columns are provided for some rows, just ignore them
+                print(err)
+                columns = pd.read_csv(data_url, sep=',', nrows=1).columns.tolist()
+                matches = pd.read_csv(data_url, sep=',', encoding='mbcs', names=columns, skiprows=1)
+
+            Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
+            matches.to_csv(local_path, index=False)
+        matches = matches.dropna(how='all')
+
+        def normalize_year(year: str) -> str:
+            """
+            :param year: Two or four digit long year
+            :return: Four digit long year
+
+            Normalize the year for 2017/2018 French 1st league since the file names on the football-data.co.uk website
+             follow the DD/MM/YY format instead of the DD/MM/YYYY format used for other leagues
+            """
+            if len(year) == 2:
+                current_year = int(str(datetime.datetime.now().year)[-2:])
+                if int(year) <= current_year:
+                    year = '20' + year  # XXIe century
+                else:
+                    year = '19' + year  # XXe century
+            return year
+
+        # Sort the matches by chronological order
+        matches['day'] = matches['Date'].apply(lambda x: x.split('/')[0])
+        matches['month'] = matches['Date'].apply(lambda x: x.split('/')[1])
+        matches['year'] = matches['Date'].apply(lambda x: normalize_year(x.split('/')[2]))
+        matches['Date'] = matches.apply(lambda df: '/'.join((df['day'], df['month'], df['year'])), axis=1)
+        matches['Date'] = pd.to_datetime(matches['Date'], format='%d/%m/%Y')
+        matches.sort_values(by=['Date'], inplace=True)
+
+        return matches
+
+    def clear_data(self):
+        """
+        :return:
+
+        Clear the season data
+        """
         team_names = self.matches['HomeTeam'].unique()
         self.teams = {team_name: Team(team_name, self.args) for team_name in team_names}
         self.ranking = self.get_ranking()
         self.dataset = []
 
-    def update_statistics(self, played_matches):
+    def update_statistics(self, played_matches: pd.DataFrame):
+        """
+        :param played_matches: Matches that were played at the current date
+        :return:
+        """
         for stat in ['FTR', 'FTHG', 'FTAG']:
             assert stat in played_matches, '%s statistics must be available' % stat
 
@@ -109,7 +217,10 @@ class Season(object):
                 self.teams[match['%sTeam' % home_or_away]].update(match, home_or_away)
         self.ranking = self.get_ranking()
 
-    def get_ranking(self):
+    def get_ranking(self) -> pd.DataFrame:
+        """
+        :return: The ranking of teams for the current date.
+        """
         ranking_props = ['name', 'played_matches', 'points', 'goal_difference', 'scored_goals', 'conceded_goals']
         ranking = pd.DataFrame([{key: value for key, value in vars(team).items() if key in ranking_props}
                                 for team in self.teams.values()])
@@ -119,13 +230,19 @@ class Season(object):
             team.ranking = 1 + ranking.index.get_loc(team.name)
         return ranking
 
-    def run(self, betting_strategy=None):
-        self.reset_statistics()
+    def run(self, betting_strategy: Union[betting.BettingStrategy, None] = None):
+        """
+        :param betting_strategy: Optional betting strategy to apply while running the season.
+        :return:
+
+        Run the whole season matchday by matchday and prepare a dataset for ML model training and testing.
+        """
+        self.clear_data()
         self._matches = deepcopy(self.matches)
         if betting_strategy is not None:
             print('\nLeveraging the predictive models to bet for the %s season...' % self.name)
         while len(self._matches):
-            # Group matches by date
+            # Group the matches by date
             current_date = self._matches['Date'].iloc[0]
             matches = self._matches.loc[self._matches['Date'] == current_date]
             dataset = []
@@ -142,43 +259,59 @@ class Season(object):
             self.dataset.append(dataset)
         self.dataset = pd.concat(self.dataset)
 
-    def prepare_example(self, match):
+    def prepare_example(self, match: pd.Series) -> Dict:
+        """
+        :param match: Data of a football match
+        :return:
+
+        Gather features and label about the match for later training and evaluating a ML model to predict the outcome
+        of the match (win, loose, draw)
+        """
         example = {'result': match['FTR']}  # ground truth
 
-        # Features
+        # Gather numerical features for both home and away teams
         for home_or_away in ['Home', 'Away']:
             team_name = match['%sTeam' % home_or_away]
             team = self.teams[team_name]
+
+            # Current league ranking features
             example['%sPlayedMatches' % home_or_away] = team.played_matches
             example['%sRanking' % home_or_away] = team.ranking
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 
+            # Features related to the most recent matches against other teams in the league
             if self.args.match_history_length is not None:
                 for i in range(1, 1 + self.args.match_history_length):
                     key = '%sPrev%d' % (home_or_away, i)
                     if i <= len(team.last_k_matches[home_or_away]):
                         prev_match = team.last_k_matches[home_or_away][-i]
                         if prev_match['Res'] == 'D':
+                            # = Odd that this team won - Odd that the other team won
                             coeffs = defaultdict(lambda: -1)
                             coeffs[home_or_away[0]] = 1
                         elif prev_match['Res'] == 'W':
+                            # = Odd that this team won
                             coeffs = defaultdict(lambda: 0)
                             coeffs[home_or_away[0]] = 1
                         elif prev_match['Res'] == 'L':
+                            # = - Odd that the other team won
                             coeffs = defaultdict(lambda: -1)
                             coeffs[home_or_away[0]] = 0
                         else:
                             raise Exception('A match result is either a draw (D), a win (W) or a loose (L)')
+
+                        # Score comparing the betting odds and the actual results to gauge the team form
                         current_form_score = 0
                         for prev_home_or_away in ['H', 'A']:
                             odd_tickers = {platform + prev_home_or_away for platform in self.betting_platforms}
-                            available_tickers = odd_tickers.intersection(prev_match.keys())
+                            available_tickers = list(odd_tickers.intersection(prev_match.keys()))
                             odd_result = prev_match.loc[available_tickers].mean()
                             current_form_score += coeffs[prev_home_or_away] * odd_result
                         example[key] = current_form_score
                     else:
                         example[key] = np.nan
 
+        # Features related to the direct confrontations of the home and away teams in the past seasons
         if self.args.number_previous_direct_confrontations:
             previous_confrontations = self.match_historic[
                 (self.match_historic['HomeTeam'] == match['HomeTeam']) &
@@ -197,7 +330,14 @@ class Season(object):
 
 class Team(object):
     def __init__(self, name, args):
+        """
+        :param name: Name of the team, e.g. Man City
+        :param args: Parsed main file arguments
+        """
         self.name = name
+        self.args = args
+
+        # Current season attributes
         self.played_matches = 0
         self.points = 0
         self.goal_difference = 0
@@ -205,9 +345,15 @@ class Team(object):
         self.conceded_goals = 0
         self.ranking = None
         self.last_k_matches = {'Home': [], 'Away': []}
-        self.args = args
 
-    def update(self, match, home_or_away):
+    def update(self, match: pd.Series, home_or_away: str):
+        """
+        :param match: Match involving the team
+        :param home_or_away: Whether the team is the 'Home' or 'Away' team for this match
+        :return:
+
+        Update the team's season attributes with the input match
+        """
         match = match.copy()
         self.played_matches += 1
         if match['FTR'] == home_or_away[0]:
@@ -227,43 +373,3 @@ class Team(object):
         if self.args.match_history_length is not None:
             self.last_k_matches[home_or_away].append(match)
             self.last_k_matches[home_or_away] = self.last_k_matches[home_or_away][-self.args.match_history_length:]
-
-
-def get_season_matches(name, league_name):
-    season_id = '/'.join((name, league_name + '.csv'))
-    local_path = '/'.join(('data', season_id))
-    if os.path.exists(local_path):
-        matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
-    else:
-        data_url = '/'.join((base_path_data, season_id))
-        try:
-            matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
-        except urllib.error.HTTPError:
-            print('The following data URL seems incorrect: %s' % data_url)
-            raise Exception('Check the URL')
-        except pd.errors.ParserError as err:  # extra empty columns are provided for some rows, just ignore them
-            print(err)
-            columns = pd.read_csv(data_url, sep=',', nrows=1).columns.tolist()
-            matches = pd.read_csv(data_url, sep=',', encoding='mbcs', names=columns, skiprows=1)
-
-        Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
-        matches.to_csv(local_path, index=False)
-    matches = matches.dropna(how='all')
-
-    # sort matches by chronological order
-    def normalize_year(year):  # fix for 2017/2018 French 1st league having DD/MM/YY format instead of DD/MM/YYYY
-        if len(year) == 2:
-            current_year = int(str(datetime.datetime.now().year)[-2:])
-            if int(year) <= current_year:
-                year = '20' + year
-            else:
-                year = '19' + year
-        return year
-    matches['day'] = matches['Date'].apply(lambda x: x.split('/')[0])
-    matches['month'] = matches['Date'].apply(lambda x: x.split('/')[1])
-    matches['year'] = matches['Date'].apply(lambda x: normalize_year(x.split('/')[2]))
-    matches['Date'] = matches.apply(lambda df: '/'.join((df['day'], df['month'], df['year'])), axis=1)
-    matches['Date'] = pd.to_datetime(matches['Date'], format='%d/%m/%Y')
-    matches.sort_values(by=['Date'], inplace=True)
-
-    return matches
