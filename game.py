@@ -83,13 +83,18 @@ class League(object):
             self.datasets[season.name] = season.dataset
 
     def analyze_betting_platforms_margins(self):
+        """
+        :return:
+
+        Analyze the average margins of betting platforms by summing the inverse of their home, away and draw odds.
+        """
         margins = {}
         all_matches = pd.concat([season.matches for season in self.seasons])
         output = 'Average margin of each betting platform per match:'
         for platform in self.betting_platforms:
             odd_tickers = {platform + result for result in ['H', 'D', 'A']}
             if len(odd_tickers.intersection(all_matches)) == 3:
-                odds = all_matches.loc[:, odd_tickers].dropna()
+                odds = all_matches.loc[:, list(odd_tickers)].dropna()
                 inv_odds = 1.0 / odds
                 probs = inv_odds.sum(axis=1)
                 margins[platform] = probs.mean()
