@@ -61,9 +61,10 @@ class HomeTeamWins:
     def __init__(self):
         self.label_encoder = None
 
-    def infer(self, dataset: pd.DataFrame) -> pd.DataFrame:
+    def infer(self, dataset: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """
         :param dataset: Match features
+        :param kwargs: Optional keyword arguments
         :return: The predicted outcome for each input match. Both their human readable version, i.e.
         'H' (Home team wins), 'A' (Away team wins), 'D' (Draw), and their numerical version, e.g. 0 for 'H', are
         returned.
@@ -81,9 +82,10 @@ class BestRankedTeamWins:
     def __init__(self):
         self.label_encoder = None
 
-    def infer(self, dataset: pd.DataFrame) -> pd.DataFrame:
+    def infer(self, dataset: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """
         :param dataset: Match features
+        :param kwargs: Optional keyword arguments
         :return: The predicted outcome for each input match. Both their human readable version, i.e.
         'H' (Home team wins), 'A' (Away team wins), 'D' (Draw), and their numerical version, e.g. 0 for 'H', are
         returned.
@@ -96,17 +98,18 @@ class BestRankedTeamWins:
 
 
 class ResultsPredictor(object):
-    def __init__(self, league: game.League, args: argparse.Namespace):
+    def __init__(self, league: 'game.League', **kwargs):
         """
         :param league: League to predict results for
-        :param args: Parsed main file arguments
+        :param kwargs: Parsed main file arguments
         """
         # TODO: Model selection and hyperparameter tuning
-        if args.config_name is None:
-            args.config_name = os.path.join('configs', '%s.json' % args.model_name)
-        with open(args.config_name, 'r') as f:
+        self.model_name = kwargs['model_name']
+        if kwargs['config_name'] is None:
+            kwargs['config_name'] = os.path.join('configs', '%s.json' % self.model_name)
+        with open(kwargs['config_name'], 'r') as f:
             config = json.load(f)
-        self.model = eval(args.model_name)(**config)
+        self.model = eval(self.model_name)(**config)
         print('\nModel for predicting the game results: %s' % self.model.__class__.__name__)
         self.league = league
         self.training_dataset, self.test_dataset = self.split_train_test_sets()

@@ -4,6 +4,7 @@ Main file for the Sports Bet project
 import argparse
 import pandas as pd
 import numpy as np
+from typing import Dict, Union, List
 
 from game import League
 from predictions import ResultsPredictor
@@ -12,8 +13,14 @@ from betting import BettingStrategy
 
 pd.options.display.width = 0
 np.seterr(divide='ignore', invalid='ignore')
+betting_platforms = ['B365', 'BW', 'IW', 'PS', 'WH', 'VC']
 
-if __name__ == '__main__':
+
+def parse_arguments(args: Union[None, List] = None) -> Dict:
+    """
+    :param args: List of argument names and values. If not provided, the command line arguments will be considered.
+    :return: Validated keyword arguments to provide as input to the downstream classes
+    """
     parser = argparse.ArgumentParser()
 
     # Game
@@ -139,13 +146,12 @@ if __name__ == '__main__':
         help="Model configuration name or path. By default, search for the file $model_name.json in the models folder"
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
 
     countries = ['Italy', 'France', 'Spain', 'England', 'Germany']
     assert args.country in countries, '%s is not in the list of supported countries (%s)' % (
         args.country, countries)
 
-    betting_platforms = ['B365', 'BW', 'IW', 'PS', 'WH', 'VC']
     assert args.betting_platform in betting_platforms, '%s is not in the list of supported betting platforms (%s)' % (
         args.betting_platform, betting_platforms)
 
@@ -156,16 +162,26 @@ if __name__ == '__main__':
     if not args.end_season:
         args.end_season = '%s' % (str((int(args.start_season) + 1) % 100).zfill(2))
 
+    return vars(args)
+
+
+def main():
+    kwargs = parse_arguments()
+
     # Set the game
-    league = League(args, betting_platforms)
+    league = League(betting_platforms, **kwargs)
     league.run()
-    if args.analyze_betting_platforms_margins:
+    if kwargs['analyze_betting_platforms_margins']:
         league.analyze_betting_platforms_margins()
 
-    results_predictor = ResultsPredictor(league, args)
+    results_predictor = ResultsPredictor(league, **kwargs)
     results_predictor.train()
     results_predictor.eval()
 
-    betting_strategy = BettingStrategy(args, results_predictor)
+    betting_strategy = BettingStrategy(results_predictor, **kwargs)
     league.seasons[-1].run(betting_strategy)
     betting_strategy.display_results()
+
+
+if __name__ == '__main__':
+    main()

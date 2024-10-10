@@ -1,12 +1,16 @@
 import unittest
 import pandas as pd
 
-from main import League
+from main import League, betting_platforms, parse_arguments
 
 
 class TestMethods(unittest.TestCase):
     def test_game_logic(self):
-        league = League(country='France', division='1', seasons = ['1819'])
+        kwargs = parse_arguments(args=['--country', 'France', '--start_season', '18'])
+        league = League(
+            betting_platforms=betting_platforms,
+            **kwargs
+        )
         league.seasons[0].run()
         simulated_champion = league.seasons[0].ranking.iloc[0]
         expected_champion = pd.Series({'played_matches': 38, 'points': 91, 'goal_difference': 70, 'scored_goals': 105,

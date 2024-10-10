@@ -1,7 +1,6 @@
 import urllib
 import os
 from pathlib import Path
-import argparse
 from typing import List, Union, Dict
 from collections import defaultdict
 import datetime
@@ -45,30 +44,30 @@ def get_season_ids(
 
 
 class League(object):
-    def __init__(self, args: argparse.Namespace, betting_platforms: List[str]):
+    def __init__(self, betting_platforms: List[str], **kwargs):
         """
-        :param args: Parsed main file arguments
         :param betting_platforms: List of betting platforms tickers, e.g. 'BW' for Bet&Win platform.
+        :param kwargs: Parsed main file arguments
         """
-        self.country = args.country
-        print('Country: %s' % args.country)
-        self.division = args.division
-        print('Division: %s' % args.division)
-        id_country = args.country[0].upper()
-        if args.country.lower() == 'spain':
+        self.country = kwargs['country']
+        print('Country: %s' % self.country)
+        self.division = kwargs['division']
+        print('Division: %s' % self.division)
+        id_country = self.country[0].upper()
+        if self.country.lower() == 'spain':
             id_country = 'SP'
-        elif args.country.lower() == 'germany':
+        elif self.country.lower() == 'germany':
             id_country = 'D'
-        elif args.country.lower() == 'england':
+        elif self.country.lower() == 'england':
             self.division -= 1  # to follow the id of the website from which we pull the results
         self.name = id_country + str(self.division)
-        match_historic = [] if args.number_previous_direct_confrontations else None
+        match_historic = [] if kwargs['number_previous_direct_confrontations'] else None
 
-        seasons = get_season_ids(args.start_season, args.end_season)
+        seasons = get_season_ids(kwargs['start_season'], kwargs['end_season'])
         print("Analyzing the seasons from %s to %s..." % (seasons[0], seasons[-1]))
-        self.seasons = [Season(self.name, season, match_historic, args, betting_platforms) for season in seasons]
+        self.seasons = [Season(self.name, season, match_historic, betting_platforms, **kwargs) for season in seasons]
         assert len(self.seasons) >= 1, "We have not found any season for start_season=%s and end_season=%s" % \
-                                       (args.start_season, args.end_season)
+                                       (kwargs['start_season'], kwargs['end_season'])
         self.datasets = {}
         self.betting_platforms = betting_platforms
 
@@ -111,17 +110,18 @@ class Season(object):
             league_name: str,
             name: str,
             match_historic: Union[List, None],
-            args: argparse.Namespace,
-            betting_platforms: List[str]):
+            betting_platforms: List[str],
+            **kwargs):
         """
         :param league_name: Name of the league, e.g. 'SP1' for 1st Spanish division
         :param name: Four digits ID of the season, e.g. '0405' for the 2004/2005 season
         :param match_historic: List of matches from previous seasons that were already loaded. None can also be passed
         if the previous matches are not needed.
-        :param args: Parsed main file arguments
         :param betting_platforms: List of betting platforms tickers, e.g. 'BW' for Bet&Win platform
+        :param kwargs: Parsed main file arguments
         """
-        self.args = args
+        for key, value in kwargs.items():
+            setattr(self, key, value)
         self.league_name = league_name
         self.name = name
         self.betting_platforms = betting_platforms
@@ -130,7 +130,7 @@ class Season(object):
             if not len(match_historic):
                 previous_seasons = get_season_ids(
                     start_season=self.name[:2], end_season=self.name[2:],
-                    offset=[-args.number_previous_direct_confrontations - 1, -1])
+                    offset=[-self.number_previous_direct_confrontations - 1, -1])
                 for season in previous_seasons:
                     match_historic.append(self.get_season_matches(season, league_name))
             self.match_historic = pd.concat(match_historic)
@@ -204,7 +204,7 @@ class Season(object):
         Clear the season data
         """
         team_names = self.matches['HomeTeam'].unique()
-        self.teams = {team_name: Team(team_name, self.args) for team_name in team_names}
+        self.teams = {team_name: Team(team_name, self.match_history_length) for team_name in team_names}
         self.ranking = self.get_ranking()
         self.dataset = []
 
@@ -285,8 +285,8 @@ class Season(object):
             example['%sAvgPoints' % home_or_away] = np.divide(team.points, team.played_matches)
 
             # Features related to the most recent matches against other teams in the league
-            if self.args.match_history_length is not None:
-                for i in range(1, 1 + self.args.match_history_length):
+            if self.match_history_length is not None:
+                for i in range(1, 1 + self.match_history_length):
                     key = '%sPrev%d' % (home_or_away, i)
                     if i <= len(team.last_k_matches[home_or_away]):
                         prev_match = team.last_k_matches[home_or_away][-i]
@@ -317,16 +317,16 @@ class Season(object):
                         example[key] = np.nan
 
         # Features related to the direct confrontations of the home and away teams in the past seasons
-        if self.args.number_previous_direct_confrontations:
+        if self.number_previous_direct_confrontations:
             previous_confrontations = self.match_historic[
                 (self.match_historic['HomeTeam'] == match['HomeTeam']) &
                 (self.match_historic['AwayTeam'] == match['AwayTeam'])]
-            previous_confrontations = previous_confrontations[-self.args.number_previous_direct_confrontations:]
-            for i in range(1, 1 + self.args.number_previous_direct_confrontations):
+            previous_confrontations = previous_confrontations[-self.number_previous_direct_confrontations:]
+            for i in range(1, 1 + self.number_previous_direct_confrontations):
                 key = 'PrevConfrFTR%d' % i
                 if i <= len(previous_confrontations):  # TODO: add also time spent since these confrontations ?
                     example[key] = previous_confrontations.iloc[-i]['FTR']
-                    if self.args.match_results_encoding == 'points':
+                    if self.match_results_encoding == 'points':
                         example[key] = FTR2Points[example[key]]
                 else:
                     example[key] = np.nan
@@ -334,13 +334,13 @@ class Season(object):
 
 
 class Team(object):
-    def __init__(self, name, args):
+    def __init__(self, name: str, match_history_length: Union[None, int]):
         """
         :param name: Name of the team, e.g. Man City
         :param args: Parsed main file arguments
         """
         self.name = name
-        self.args = args
+        self.match_history_length = match_history_length
 
         # Current season attributes
         self.played_matches = 0
@@ -375,6 +375,6 @@ class Team(object):
         self.scored_goals += match['FT%sG' % home_or_away[0]]
         self.conceded_goals += match['FT%sG' % ('A' if home_or_away == 'Home' else 'H')]
         self.goal_difference = self.scored_goals - self.conceded_goals
-        if self.args.match_history_length is not None:
+        if self.match_history_length is not None:
             self.last_k_matches[home_or_away].append(match)
-            self.last_k_matches[home_or_away] = self.last_k_matches[home_or_away][-self.args.match_history_length:]
+            self.last_k_matches[home_or_away] = self.last_k_matches[home_or_away][-self.match_history_length:]
