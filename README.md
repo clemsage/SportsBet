@@ -1,8 +1,8 @@
 # Football Match Prediction with Machine Learning
 
-This repository contains a Python-based project designed to predict football match results using Machine Learning (ML) 
-classifiers. The system uses historical match data to train models that predict the outcome of future games. 
-Additionally, the predictions can be used to make decisions about placing bets.
+As a football fan, I’ve often wondered whether it’s possible to consistently predict match outcomes using machine 
+learning — and, more intriguingly, if those predictions could be leveraged to make money through online betting. 
+This repository captures my exploratory journey to answer that very question. Stick around to find out the results!
 
 ## Table of Contents
 - [Overview](#overview)
@@ -21,7 +21,7 @@ Additionally, the predictions can be used to make decisions about placing bets.
 ## Overview
 
 This project provides an end-to-end pipeline for predicting football match results. It allows users to load historical 
-match data from the web, preprocess it, train machine learning models, and make predictions on future matches. 
+match data from the web, preprocess it, train Machine Learning (ML) models, and make predictions on future matches. 
 A betting module simulates potential gains based on model predictions.
 
 The main components of the project include:
@@ -32,8 +32,8 @@ The main components of the project include:
 ## Project Structure
 ```
 .
-├── configs           # Folder containing the configuration files for each ML model (hyper-parameters)
-├── data              # Folder containing the football matches data
+├── configs           # Configuration files for ML models (adjust hyperparameters)
+├── data              # Football matches data to be loaded
 ├── betting.py        # Module for handling the betting simulation based on predictions.
 ├── game.py           # Handles data structures for football games and results.
 ├── LICENSE.md        # Information about the MIT license used for this project
@@ -72,8 +72,8 @@ To set up this project locally, follow these steps:
    ```bash
    git clone https://github.com/clemsage/SportsBet.git
    ```
-
-2. Install the necessary dependencies:
+2. Make sure that Python 3.10+ is installed on your system.
+3. Install the necessary dependencies:
    ```bash
    pip install -r requirements.txt
    ```
@@ -91,8 +91,16 @@ divisions, or models by adjusting the arguments.
 ## Machine Learning Predictors
 The system can use various machine learning classifiers to predict match results, such as Decision Trees, Random 
 Forests and Logistic Regression. In fact, any classifier from the *scikit-learn* package can be passed to the 
-`model_name` argument. The model hyperparameters, such as the number of trees in the forest, can be adjusted with the 
-JSON files in the `config` folder. 
+`model_name` argument. 
+
+The model hyperparameters can be adjusted in the JSON files within the `config` folder. For example,
+the number of trees in the random forest can be changed by modifying the `n_estimators` parameter within the 
+`RandomForestClassifier.json` file:
+```json
+{
+  "n_estimators": 100
+}
+```
 
 ### Features
 These models are trained on features derived from historical match data. The key features for each match include:
