@@ -5,7 +5,6 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 import sklearn
-import argparse
 from typing import Union, Tuple
 
 import pandas as pd
@@ -139,7 +138,7 @@ class ResultsPredictor(object):
         X, Y, self.label_encoder, self.feature_preprocessor = dataset_preprocessing(self.training_dataset)
         print('Feature set: %s' % list(self.training_dataset.drop('result', axis='columns').columns))
         print('Feature set size: %d' % X.shape[1])
-        print('\nTraining of the model on %d samples from %s to %s seasons...' %
+        print('\nTraining of the model on %d matches from %s to %s seasons...' %
               (len(self.training_dataset), self.league.seasons[0].name,
                self.league.seasons[max(-len(self.league.seasons), -2)].name))
         self.model.fit(X, Y)
@@ -153,7 +152,7 @@ class ResultsPredictor(object):
 
         Evaluate the ML classifier on the last provided season
         """
-        print('\nEvaluation of the model on %d samples from the season %s...' % (
+        print('\nEvaluation of the model on %d matches from the season %s...' % (
             len(self.test_dataset), self.league.seasons[-1].name))
         X, Y, _, _ = dataset_preprocessing(self.test_dataset, self.label_encoder, self.feature_preprocessor)
         Y_pred = self.model.predict(X)

@@ -6,6 +6,15 @@ from main import League, betting_platforms, parse_arguments
 
 class TestMethods(unittest.TestCase):
     def test_game_logic(self):
+        """
+        :return
+
+         Tests the system's ability to correctly track and update team rankings, points, and goals throughout the
+         season (matchday by matchday).
+
+         Verifies that the champion team and its final statistics (e.g., played matches, points, goal difference,
+         scored and conceded goals) match the expected values.
+         """
         kwargs = parse_arguments(args=['--country', 'France', '--start_season', '18'])
         league = League(
             betting_platforms=betting_platforms,

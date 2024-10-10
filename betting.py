@@ -1,5 +1,3 @@
-import argparse
-
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -132,6 +130,7 @@ class BettingStrategy(object):
             self.bankroll_over_time.loc[predictor].plot(label=predictor)
         plt.xlabel('Date')
         plt.ylabel('Bankroll')
-        plt.title('Betting performance of ML model and baseline heuristics')
+        plt.title(f'Betting performance of ML model and baseline heuristics '
+                  f'({self.betting_platform} platform, stake per bet = {self.stake_per_bet})')
         plt.legend()
         plt.show()
