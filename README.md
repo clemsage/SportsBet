@@ -36,6 +36,7 @@ The main components of the project include:
 ├── data              # Folder containing the football matches data
 ├── betting.py        # Module for handling the betting simulation based on predictions.
 ├── game.py           # Handles data structures for football games and results.
+├── LICENSE.md        # Information about the MIT license used for this project
 ├── main.py           # Main script for running the prediction pipeline.
 ├── predictions.py    # Contains the logic for machine learning model training and making predictions.
 ├── tests.py          # Unit tests for different parts of the system.
@@ -158,11 +159,11 @@ To improve the system’s financial performance, consider the following approach
 - **Test Across Different Leagues and Seasons:** Assess the system's consistency by applying it to other leagues and seasons.
 - **Optimize Model Selection and Hyperparameters:** Experiment with different machine learning models and tune their hyperparameters for better results.
 - **Increase Training Data:** Train the models on larger datasets by merging seasons from multiple leagues.
-- **Enhance Features:** Revisit and improve the [features](#additional_feature_ideas) used in the model to capture more predictive factors.
+- **Enhance Features:** Revisit and improve the [features](#additional-feature-ideas) used in the model to capture more predictive factors.
 - **Advanced Betting Strategies:** Explore strategies like the **Kelly criterion** or dynamic stake sizing to manage risk and potentially maximize returns.
 
 ## Code Testing
-Unit tests are included in the *tests.py* file. To run the tests, execute the command:
+Unit tests are included in the `tests.py` file. To run the tests, execute the command:
 
 ```bash
 python -m unittest tests.py
@@ -175,4 +176,4 @@ related to the predicting models and betting mechanism would also be worth being
 Contributions are welcome! Feel free to submit a pull request or open an issue.
 
 ## License
-This project is licensed under the MIT License.
+This project is licensed under the MIT License. See the LICENSE file for details.
