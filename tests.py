@@ -27,3 +27,7 @@ class TestMethods(unittest.TestCase):
         self.assertEqual(simulated_champion.name, expected_champion.name)
         for idx in expected_champion.index:
             self.assertEqual(simulated_champion[idx], expected_champion[idx], 'Incorrect %s count' % idx)
+
+
+if __name__ == '__main__':
+    unittest.main()
