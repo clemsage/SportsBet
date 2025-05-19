@@ -154,18 +154,18 @@ class Season(object):
         season_id = '/'.join((name, league_name + '.csv'))
         local_path = '/'.join(('data', season_id))
         if os.path.exists(local_path):  # Load matches from local file
-            matches = pd.read_csv(local_path, sep=',', encoding='mbcs')
+            matches = pd.read_csv(local_path, sep=',')
         else:  # Load matches from football-data.co.uk website
             data_url = '/'.join((base_path_data, season_id))
             try:
-                matches = pd.read_csv(data_url, sep=',', encoding='mbcs')
+                matches = pd.read_csv(data_url, sep=',')
             except urllib.error.HTTPError:
                 print('The following data URL seems incorrect: %s' % data_url)
                 raise Exception('Check the URL')
             except pd.errors.ParserError as err:  # extra empty columns are provided for some rows, just ignore them
                 print(err)
                 columns = pd.read_csv(data_url, sep=',', nrows=1).columns.tolist()
-                matches = pd.read_csv(data_url, sep=',', encoding='mbcs', names=columns, skiprows=1)
+                matches = pd.read_csv(data_url, sep=',', names=columns, skiprows=1)
 
             Path(os.path.split(local_path)[0]).mkdir(parents=True, exist_ok=True)
             matches.to_csv(local_path, index=False)
