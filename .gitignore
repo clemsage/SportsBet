@@ -4,3 +4,4 @@ Scripts
 data
 *.cfg
 __pycache__
+.venv
